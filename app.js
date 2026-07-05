@@ -16,6 +16,7 @@ const SAMPLE={v:1,k:'vtm-player',team:'TEAM',gen:new Date().toISOString(),demo:t
        goal:'Migliorare la ricezione in zona 5 e tenere alta la percentuale di positiva.'},
     voti:[{d:'2026-06-07',v:7.2,o:'vs San Pio X'},{d:'2026-06-14',v:5.8,o:'vs Dinamo BVL'}],
     season:{matches:2,avgVoto:6.5,atkEff:34,recPos:62,ace:1,blk:0},
+    training:{avg:6.9,count:2,byCat:{Ricezione:6.5,Palleggio:7,Attacco:7.5}},
     matches:[
         {d:'2026-06-07',o:'vs San Pio X',res:{w:3,l:1},row:{bErr:2,bAce:1,rTot:22,rPos:15,rPrf:9,aTot:24,aErr:5,aPt:13,mPt:0,voto:7.2}},
         {d:'2026-06-14',o:'vs Dinamo BVL',res:{w:1,l:3},row:{bErr:3,bAce:0,rTot:20,rPos:9,rPrf:5,aTot:22,aErr:8,aPt:9,mPt:0,voto:5.8}}
@@ -31,11 +32,11 @@ const SAMPLE={v:1,k:'vtm-player',team:'TEAM',gen:new Date().toISOString(),demo:t
     att:[{d:'2026-06-10',n:'Ricezione + Palleggio',s:'present'},{d:'2026-06-12',n:'Fase cambio-palla',s:'present'}],
     attPct:100,
     ex:[
-        {d:'2026-06-10',n:'Ricezione + Palleggio',items:[
-            {name:'Ricezione in bagher zona 5',grade:6.5,note:'Buona spinta gambe, controlla la chiusura del piano.'},
-            {name:'Palleggio in salto',grade:7,note:''}]},
-        {d:'2026-06-12',n:'Fase cambio-palla',items:[
-            {name:'Attacco da posto 4',grade:7.5,note:'Bel braccio, varia di più le mani.'}]}
+        {d:'2026-06-10',n:'Ricezione + Palleggio',note:'Buona spinta gambe, controlla la chiusura del piano in ricezione.',items:[
+            {name:'Ricezione in bagher zona 5',cat:'Ricezione',grade:6.5},
+            {name:'Palleggio in salto',cat:'Palleggio',grade:7}]},
+        {d:'2026-06-12',n:'Fase cambio-palla',note:'Bel braccio in attacco, varia di più le mani.',items:[
+            {name:'Attacco da posto 4',cat:'Attacco',grade:7.5}]}
     ]};
 
 /* ---------- stato locale ---------- */
@@ -130,10 +131,18 @@ function renderStats(){
         <td class="num">${r.aTot?Math.round((r.aPt-r.aErr)/r.aTot*100)+'%':'—'}</td>
         <td class="num voto" style="color:var(--brand);font-weight:800">${r.voto.toFixed(1)}</td></tr>`;}).join('');
     if(!rows) rows=`<tr><td colspan="5" style="color:var(--muted-2);padding:1.4rem;font-style:italic">Nessuna gara registrata</td></tr>`;
+    const tr=P().training||{avg:null,byCat:{}};
+    const catKeys=Object.keys(tr.byCat||{}).sort((a,b)=>tr.byCat[b]-tr.byCat[a]);
+    const catCard=catKeys.length? `<div class="card"><h3><i class="fa-solid fa-dumbbell"></i> Allenamenti per fondamentale</h3>`+
+        catKeys.map(c=>{const v=tr.byCat[c],pct=Math.round(v/10*100),col=v>=6?'linear-gradient(90deg,var(--brand-deep),var(--brand))':'var(--flame)';
+            return `<div style="display:flex;align-items:center;gap:12px;padding:6px 0"><div style="width:100px;font-size:.84rem;font-weight:600">${c}</div>
+                <div style="flex:1"><div class="bar-track" style="height:8px"><div class="bar-fill" style="width:${pct}%;background:${col}"></div></div></div>
+                <b class="num" style="width:34px;text-align:right;color:${v>=6?'var(--brand)':'var(--flame)'}">${v.toFixed(1)}</b></div>`;}).join('')+`</div>`:'';
     document.getElementById('statistiche').innerHTML=`<div class="sec-title">Rendimento</div><div class="sec-h">Le mie statistiche</div>
         <div class="card"><h3><i class="fa-solid fa-chart-line"></i> Andamento voti</h3>${svgLine(voti)}</div>
         <div class="card"><h3><i class="fa-solid fa-table-cells"></i> Stagione</h3>
-            <div class="stat-grid">${cell('Media voto',s.avgVoto?s.avgVoto.toFixed(1):'—')}${cell('Efficienza attacco',s.atkEff!=null?s.atkEff:'—','%')}${cell('Ricezione positiva',s.recPos!=null?s.recPos:'—','%')}${cell('Ace',s.ace)}${cell('Muri punto',s.blk)}${cell('Gare giocate',s.matches)}</div></div>
+            <div class="stat-grid">${cell('Media voto',s.avgVoto?s.avgVoto.toFixed(1):'—')}${cell('Media allenamenti',tr.avg!=null?tr.avg.toFixed(1):'—')}${cell('Efficienza attacco',s.atkEff!=null?s.atkEff:'—','%')}${cell('Ricezione positiva',s.recPos!=null?s.recPos:'—','%')}${cell('Ace',s.ace)}${cell('Gare giocate',s.matches)}</div></div>
+        ${catCard}
         <div class="card"><h3><i class="fa-solid fa-list-ol"></i> Gara per gara</h3>
             <table class="mtable"><thead><tr><th style="text-align:left">Gara</th><th>Bat. A/E</th><th>Ric+</th><th>Att%</th><th>Voto</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -161,12 +170,15 @@ function renderTraining(){
         const items=sess.items.map((it,ii)=>{
             const key=`${sess.d}|${si}|${ii}`; const cur=S.self[key];
             const grade=it.grade!=null?`<span class="coach-grade num" style="color:${it.grade>=6?'var(--brand)':'var(--flame)'}">${(+it.grade).toFixed(1)}</span>`:'';
-            const note=it.note?`<div class="coach-note"><i>Mister:</i> ${it.note}</div>`:'';
+            const cat=it.cat?`<span style="font-size:.68rem;color:var(--muted-2);text-transform:uppercase;letter-spacing:.5px">${it.cat}</span>`:'';
+            const inote=it.note?`<div class="coach-note"><i>Mister:</i> ${it.note}</div>`:'';
             const rate=RT.map(([k,l])=>`<button class="${k} ${cur===k?'on':''}" onclick="rate('${key}','${k}')">${l}</button>`).join('');
-            return `<div class="ex-item"><div class="top"><span class="name">${it.name}</span>${grade}</div>${note}
+            return `<div class="ex-item"><div class="top"><span class="name">${it.name} ${cat}</span>${grade}</div>${inote}
                 <div class="self-rate">${rate}</div></div>`;
         }).join('');
-        return `<div class="session"><div class="sh"><b>${sess.n}</b><span>${fmt(sess.d)}</span></div>${items}</div>`;
+        const snote=sess.note?`<div class="coach-note" style="margin:2px 0 10px"><i>Mister:</i> ${sess.note}</div>`:'';
+        const savg=sess.items.filter(i=>i.grade!=null); const avg=savg.length?(savg.reduce((a,b)=>a+ (+b.grade),0)/savg.length):null;
+        return `<div class="session"><div class="sh"><b>${sess.n}</b><span>${fmt(sess.d)}${avg!=null?` · media <b style="color:var(--brand)">${avg.toFixed(1)}</b>`:''}</span></div>${snote}${items}</div>`;
     }).join('');
     if(!html) html=`<div class="empty-state"><i class="fa-solid fa-dumbbell"></i>Nessun esercizio dal mister ancora.<br><span style="font-size:.82rem">Arriveranno qui dopo gli allenamenti.</span></div>`;
     document.getElementById('allenamenti').innerHTML=`<div class="sec-title">Crescita</div><div class="sec-h">Allenamenti</div>
@@ -223,6 +235,7 @@ function scaffold(){
     return {v:1,k:'vtm-player',team:(P().team&&!P().demo)?P().team:'',demo:false,
         p:{name:'',number:0,role:'Schiacciatore',hand:'Dx',height:0,cap:false,vice:false,status:'active',goal:''},
         voti:[],season:{matches:0,avgVoto:null,atkEff:null,recPos:null,ace:0,blk:0},
+        training:{avg:null,count:0,byCat:{}},
         matches:[],cal:[],att:[],attPct:null,ex:[]};
 }
 function editMyProfile(){
