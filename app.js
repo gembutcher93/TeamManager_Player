@@ -51,6 +51,7 @@ function decode(code){ return JSON.parse(decodeURIComponent(escape(atob(code.tri
 function applyPkg(pkg){
     if(!pkg||pkg.k!=='vtm-player'||!pkg.p) throw new Error('formato');
     S={pkg, self:{}, mine:[], onboard:false};
+    if(pkg.photo){ PL_PHOTO=pkg.photo; idbSet('self',pkg.photo); }
     save(); closeOnboarding(); renderAll(); toast('Profilo caricato: '+pkg.p.name);
 }
 function openImport(){
@@ -461,7 +462,7 @@ function plMediaCSS(){
   .fc .ovr{text-align:center;line-height:.95;} .fc .ovr b{font-family:'Outfit',sans-serif;font-size:2.5rem;font-weight:900;display:block;}
   .fc .ovr span{font-size:.72rem;font-weight:800;letter-spacing:1px;}
   .fc .sporticon{font-size:1.7rem;}
-  .fc .photo{width:152px;height:152px;margin:4px auto 8px;border-radius:18px;overflow:hidden;background:rgba(255,255,255,.28);display:flex;align-items:center;justify-content:center;position:relative;}
+  .fc .photo{width:176px;height:234px;margin:4px auto 8px;border-radius:16px;overflow:hidden;background:rgba(255,255,255,.28);display:flex;align-items:center;justify-content:center;position:relative;}
   .fc .photo img{width:100%;height:100%;object-fit:cover;} .fc .photo .ini{font-family:'Outfit';font-weight:900;font-size:3rem;color:rgba(0,0,0,.32);}
   .fc .nm{text-align:center;font-family:'Outfit',sans-serif;font-weight:900;font-size:1.35rem;text-transform:uppercase;letter-spacing:.4px;line-height:1;}
   .fc .tm{text-align:center;font-weight:700;font-size:.82rem;opacity:.82;margin-top:3px;}
@@ -476,17 +477,57 @@ function initialsOf(n){ return (n||'?').trim().split(/\s+/).map(x=>x[0]).slice(0
 function pickPhoto(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
   inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f)return;
-    const rd=new FileReader(); rd.onload=()=>{ const img=new Image(); img.onload=()=>{
-      const MAX=440, r=Math.min(MAX/img.width,MAX/img.height,1), w=Math.round(img.width*r), h=Math.round(img.height*r);
-      const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
-      const data=cv.toDataURL('image/jpeg',0.72);
-      PL_PHOTO=data; idbSet('self',data); renderProfilo();
-      if(document.querySelector('.fc')) openMyCard();
-      toast('Foto aggiornata');
-    }; img.src=rd.result; };
+    const rd=new FileReader(); rd.onload=()=>{ const im=new Image(); im.onload=()=>{
+      const MAX=1000, r=Math.min(MAX/im.width,MAX/im.height,1), w=Math.round(im.width*r), h=Math.round(im.height*r);
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(im,0,0,w,h);
+      repositionPhoto(cv.toDataURL('image/jpeg',0.85));
+    }; im.src=rd.result; };
     rd.readAsDataURL(f);
   };
   inp.click();
+}
+function repositionPhoto(srcDataURL){
+  plMediaCSS();
+  const Fw=246, Fh=328; // frame 3:4
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-crop-simple" style="color:var(--brand)"></i> Posiziona la foto</h3>
+      <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body" style="text-align:center">
+      <div id="rp-frame" style="width:${Fw}px;height:${Fh}px;margin:0 auto;border-radius:16px;overflow:hidden;position:relative;background:#000;touch-action:none;border:2px solid var(--brand)">
+        <img id="rp-img" src="${srcDataURL}" style="position:absolute;left:0;top:0;transform-origin:0 0;user-select:none;pointer-events:none;max-width:none">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:14px">
+        <i class="fa-solid fa-magnifying-glass-minus" style="color:var(--muted)"></i>
+        <input id="rp-zoom" type="range" min="100" max="300" value="100" style="flex:1">
+        <i class="fa-solid fa-magnifying-glass-plus" style="color:var(--muted)"></i>
+      </div>
+      <p style="color:var(--muted-2);font-size:.78rem;margin-top:6px">Trascina per spostare, usa lo slider per lo zoom.</p>
+      <button class="btn btn-accent" style="width:100%;margin-top:12px" onclick="confirmPhoto()"><i class="fa-solid fa-check"></i> Conferma</button>
+    </div>`);
+  const frame=document.getElementById('rp-frame'), img=document.getElementById('rp-img');
+  const st={imgW:0,imgH:0,cover:1,zoom:1,tx:0,ty:0};
+  const dispW=()=>st.imgW*st.cover*st.zoom, dispH=()=>st.imgH*st.cover*st.zoom;
+  const clamp=()=>{ st.tx=Math.min(0,Math.max(Fw-dispW(),st.tx)); st.ty=Math.min(0,Math.max(Fh-dispH(),st.ty)); };
+  const apply=()=>{ img.style.transform=`translate(${st.tx}px,${st.ty}px) scale(${st.cover*st.zoom})`; };
+  img.onload=()=>{ st.imgW=img.naturalWidth; st.imgH=img.naturalHeight; st.cover=Math.max(Fw/st.imgW,Fh/st.imgH);
+    st.zoom=1; st.tx=(Fw-dispW())/2; st.ty=(Fh-dispH())/2; clamp(); apply(); };
+  if(img.complete && img.naturalWidth) img.onload();
+  document.getElementById('rp-zoom').oninput=e=>{ const z=e.target.value/100; const cx=Fw/2-st.tx, cy=Fh/2-st.ty, ratio=z/st.zoom;
+    st.zoom=z; st.tx=Fw/2-cx*ratio; st.ty=Fh/2-cy*ratio; clamp(); apply(); };
+  let px,py,drag=false;
+  frame.addEventListener('pointerdown',e=>{drag=true;px=e.clientX;py=e.clientY;try{frame.setPointerCapture(e.pointerId);}catch(_){}});
+  frame.addEventListener('pointermove',e=>{ if(!drag)return; st.tx+=e.clientX-px; st.ty+=e.clientY-py; px=e.clientX; py=e.clientY; clamp(); apply(); });
+  frame.addEventListener('pointerup',()=>drag=false); frame.addEventListener('pointercancel',()=>drag=false);
+  window.__rp={st,Fw,Fh,img};
+}
+function confirmPhoto(){
+  const R=window.__rp; if(!R){closeModal();return;}
+  const {st,Fw,Fh,img}=R, Tw=480, Th=640, s=st.cover*st.zoom;
+  const c=document.createElement('canvas'); c.width=Tw; c.height=Th; const ctx=c.getContext('2d');
+  ctx.drawImage(img, (-st.tx)/s, (-st.ty)/s, Fw/s, Fh/s, 0,0,Tw,Th);
+  const data=c.toDataURL('image/jpeg',0.78);
+  PL_PHOTO=data; idbSet('self',data); closeModal(); renderProfilo();
+  if(S && S.pkg) openMyCard();
+  toast('Foto aggiornata');
 }
 function removePhoto(){ PL_PHOTO=null; idbDel('self'); renderProfilo(); if(document.querySelector('.fc')) openMyCard(); toast('Foto rimossa'); }
 function openMyCard(){
