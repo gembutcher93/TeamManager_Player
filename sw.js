@@ -2,7 +2,7 @@
    Aggiornamento controllato: il nuovo SW resta in attesa finché non si conferma.
    skipWaiting solo su richiesta (messaggio SKIP_WAITING dalla pagina).
    I dati utente non vengono mai toccati. */
-const CACHE_VERSION='vtm-player-v6';
+const CACHE_VERSION='vtm-player-v7';
 const APP_SHELL=['./','./index.html','./app.js','./manifest.json','./icons/logo-badge.png','./icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png','./icons/favicon-32.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE_VERSION).then(c=>c.addAll(APP_SHELL)));});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE_VERSION).map(x=>caches.delete(x)))).then(()=>self.clients.claim()));});
