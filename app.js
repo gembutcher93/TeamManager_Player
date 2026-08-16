@@ -136,7 +136,12 @@ function renderProfilo(){
             </div>
             <button class="pl-cardbtn" onclick="openMyCard()"><i class="fa-solid fa-id-card"></i> La mia card</button>
         </div>
-        ${next}${goal}`;
+        ${next}${goal}
+        <div class="card"><h3><i class="fa-solid fa-arrows-rotate"></i> Aggiornamenti</h3>
+            <p style="color:var(--muted);margin:.2rem 0 1rem;font-size:.9rem">Quando esce una versione nuova compare un avviso. Qui puoi controllare o applicare un aggiornamento in attesa quando vuoi. I tuoi dati non vengono toccati.</p>
+            <div class="pwa-state" id="pwa-settings-state"></div>
+            <button class="btn btn-ghost" onclick="pwaCheckNow()"><i class="fa-solid fa-magnifying-glass"></i> Cerca aggiornamenti</button></div>`;
+    pwaMarkSettings(!!(swReg&&swReg.waiting));
 }
 
 function renderStats(){
@@ -250,10 +255,66 @@ function toast(msg,type='success'){
     s.appendChild(el);setTimeout(()=>{el.style.opacity='0';setTimeout(()=>el.remove(),300);},3000);
 }
 
+/* ===== AUTO-UPDATE PWA — banner + card in Profilo. I dati non vengono toccati. ===== */
+const APP_VERSION='v5';
+let swReg=null, pwaRefreshing=false;
+function pwaCSS(){
+  if(document.getElementById('pwa-css')) return;
+  const st=document.createElement('style'); st.id='pwa-css';
+  st.textContent=`
+  #pwa-banner{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 74px);z-index:9999;display:flex;align-items:center;gap:14px;padding:12px 16px;border-radius:14px;max-width:calc(100% - 24px);background:var(--surface-2,#141a17);color:var(--text,#fff);border:1px solid var(--brand,#22C55E);box-shadow:0 8px 30px rgba(0,0,0,.45);animation:pwaUp .25s ease;}
+  @keyframes pwaUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+  #pwa-banner .pwa-msg{font-weight:600;font-size:.9rem;display:flex;align-items:center;gap:8px;} #pwa-banner .pwa-msg i{color:var(--brand,#22C55E);}
+  #pwa-banner .pwa-acts{display:flex;gap:8px;margin-left:auto;}
+  #pwa-banner button{border:none;border-radius:9px;padding:8px 12px;font-weight:700;cursor:pointer;font-size:.82rem;}
+  #pwa-banner .pwa-later{background:transparent;color:var(--muted,#9aa);border:1px solid rgba(255,255,255,.18);}
+  #pwa-banner .pwa-now{background:var(--brand,#22C55E);color:#04140a;}
+  @media(min-width:900px){#pwa-banner{bottom:24px;}}
+  .pwa-state{margin-bottom:1rem;font-size:.9rem;} .pwa-ok{color:var(--muted);}
+  .pwa-badge-new{display:inline-block;background:var(--brand,#22C55E);color:#04140a;font-weight:800;border-radius:20px;padding:2px 10px;font-size:.78rem;margin-right:8px;}`;
+  document.head.appendChild(st);
+}
+function pwaShowBanner(){
+  pwaCSS();
+  if(document.getElementById('pwa-banner')) return;
+  const b=document.createElement('div'); b.id='pwa-banner';
+  b.innerHTML='<span class="pwa-msg"><i class="fa-solid fa-arrows-rotate"></i> Nuova versione disponibile</span>'+
+    '<div class="pwa-acts"><button class="pwa-later" onclick="pwaDismissBanner()">Più tardi</button><button class="pwa-now" onclick="pwaApplyUpdate()">Aggiorna ora</button></div>';
+  document.body.appendChild(b);
+  pwaMarkSettings(true);
+}
+function pwaDismissBanner(){ const b=document.getElementById('pwa-banner'); if(b)b.remove(); }
+function pwaApplyUpdate(){ const w=swReg&&swReg.waiting; if(w){ w.postMessage({type:'SKIP_WAITING'}); } else { location.reload(); } }
+function pwaMarkSettings(available){
+  const el=document.getElementById('pwa-settings-state'); if(!el) return;
+  el.innerHTML = available
+    ? '<span class="pwa-badge-new">Aggiornamento pronto</span><button class="btn btn-accent" onclick="pwaApplyUpdate()"><i class="fa-solid fa-arrows-rotate"></i> Aggiorna adesso</button>'
+    : '<span class="pwa-ok">Sei alla versione più recente ('+APP_VERSION+').</span>';
+}
+function pwaCheckNow(){
+  if(!swReg){ toast('Aggiornamenti non disponibili qui'); return; }
+  toast('Controllo aggiornamenti…');
+  swReg.update().then(()=>setTimeout(()=>{
+    if(swReg.waiting){ pwaShowBanner(); pwaMarkSettings(true); toast('Aggiornamento trovato'); }
+    else { pwaMarkSettings(false); toast('Sei già aggiornato'); }
+  },900)).catch(()=>toast('Controllo non riuscito','danger'));
+}
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(pwaRefreshing) return; pwaRefreshing=true; location.reload(); });
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      swReg=reg;
+      if(reg.waiting) pwaShowBanner();
+      reg.addEventListener('updatefound',()=>{ const nw=reg.installing; if(!nw) return;
+        nw.addEventListener('statechange',()=>{ if(nw.state==='installed' && navigator.serviceWorker.controller) pwaShowBanner(); }); });
+      pwaMarkSettings(!!reg.waiting);
+    }).catch(()=>{});
+  });
+}
+
 renderAll();
 if(S.onboard) showOnboarding();
 idbGet('self').then(d=>{ if(d){ PL_PHOTO=d; renderProfilo(); } });
-if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}
 
 /* ---------- creazione / modifica profilo a mano ---------- */
 function scaffold(sport){ sport=(sport&&SPORTS_P[sport])?sport:'pallavolo';
