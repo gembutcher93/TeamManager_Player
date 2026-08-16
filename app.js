@@ -256,7 +256,7 @@ function toast(msg,type='success'){
 }
 
 /* ===== AUTO-UPDATE PWA — banner + card in Profilo. I dati non vengono toccati. ===== */
-const APP_VERSION='v5';
+const APP_VERSION='v6';
 let swReg=null, pwaRefreshing=false;
 function pwaCSS(){
   if(document.getElementById('pwa-css')) return;
@@ -302,7 +302,7 @@ function pwaCheckNow(){
 if('serviceWorker' in navigator){
   navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(pwaRefreshing) return; pwaRefreshing=true; location.reload(); });
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js').then(reg=>{
+    navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{
       swReg=reg;
       if(reg.waiting) pwaShowBanner();
       reg.addEventListener('updatefound',()=>{ const nw=reg.installing; if(!nw) return;
