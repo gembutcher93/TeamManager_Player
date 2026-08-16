@@ -217,5 +217,43 @@
 
 <script src="app.js"></script>
     <script src="marquee.js"></script>
+<!-- AUTO-UPDATE PWA: banner di avviso; il nuovo codice si applica solo su conferma. I dati non vengono toccati. -->
+<style>
+  #pwa-banner{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 74px);z-index:9999;display:flex;align-items:center;gap:14px;padding:12px 16px;border-radius:14px;max-width:calc(100% - 24px);background:var(--surface-2,#141a17);color:var(--text,#fff);border:1px solid var(--brand,#28c76f);box-shadow:0 8px 30px rgba(0,0,0,.45);}
+  #pwa-banner .pwa-msg{font-weight:600;font-size:.9rem;display:flex;align-items:center;gap:8px;}
+  #pwa-banner .pwa-acts{display:flex;gap:8px;margin-left:auto;}
+  #pwa-banner button{border:none;border-radius:9px;padding:8px 12px;font-weight:700;cursor:pointer;font-size:.82rem;}
+  #pwa-banner .pwa-later{background:transparent;color:var(--muted,#8aa);border:1px solid rgba(255,255,255,.18);}
+  #pwa-banner .pwa-now{background:var(--brand,#28c76f);color:#04140a;}
+  @media(min-width:900px){#pwa-banner{bottom:24px;}}
+</style>
+<script>
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  var reg=null, refreshing=false;
+  function banner(){
+    if(document.getElementById('pwa-banner')) return;
+    var b=document.createElement('div'); b.id='pwa-banner';
+    b.innerHTML='<span class="pwa-msg"><i class="fa-solid fa-arrows-rotate"></i> Nuova versione disponibile</span>'+
+      '<div class="pwa-acts"><button class="pwa-later">Più tardi</button><button class="pwa-now">Aggiorna ora</button></div>';
+    b.querySelector('.pwa-later').onclick=function(){ b.remove(); };
+    b.querySelector('.pwa-now').onclick=function(){ if(reg&&reg.waiting){reg.waiting.postMessage({type:'SKIP_WAITING'});} else {location.reload();} };
+    document.body.appendChild(b);
+  }
+  navigator.serviceWorker.addEventListener('controllerchange',function(){ if(refreshing)return; refreshing=true; location.reload(); });
+  window.addEventListener('load',function(){
+    navigator.serviceWorker.register('sw.js').then(function(r){
+      reg=r;
+      if(r.waiting) banner();
+      r.addEventListener('updatefound',function(){
+        var nw=r.installing; if(!nw)return;
+        nw.addEventListener('statechange',function(){
+          if(nw.state==='installed' && navigator.serviceWorker.controller) banner();
+        });
+      });
+    }).catch(function(){});
+  });
+})();
+</script>
 </body>
 </html>
