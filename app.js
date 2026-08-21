@@ -555,57 +555,112 @@ function confirmPhoto(){
   toast('Foto aggiornata');
 }
 function removePhoto(){ PL_PHOTO=null; idbDel('self'); renderProfilo(); if(document.querySelector('.fc')) openMyCard(); toast('Foto rimossa'); }
-/* ---------- Card a tier (layout ufficiale, stesso renderer del coach) ---------- */
-const CARD_LAYOUTS={
+/* ---------- Card a tier (stesso motore del coach: layout ufficiale + attributi FIFA-style) ---------- */
+const TIER_ORDER=['goat','mythic','diamond','gold','silver'];
+const TIER_LABEL={goat:'GOAT',mythic:'MYTHIC',diamond:'DIAMOND',gold:'GOLD',silver:'SILVER'};
+const BASE_CARD_LAYOUT={
+  photo:{show:1,x:50,y:40,w:66,h:44}, logo:{show:1,x:72,y:9,w:15},
+  overall:{show:1,x:22,y:15,size:12,color:'#ffffff',align:'center'},
+  role:{show:1,x:22,y:24,size:4.6,color:'#ffffff',align:'center'},
+  number:{show:1,x:78,y:15,size:9,color:'#ffffff',align:'center'},
+  name:{show:1,x:50,y:66,size:7.4,color:'#ffffff',align:'center'},
+  attrs:{show:1,x:50,y:82,size:5,color:'#ffffff'},
+  tierName:{show:0,x:50,y:94,size:4,color:'#ffffff',align:'center'}
+};
+const DEPLOY_CARD_LAYOUTS={
   goat:{photo:{show:1,x:50,y:23.5,w:86,h:47},logo:{show:1,x:78,y:20.5,w:22.5},overall:{show:1,x:18.5,y:20,size:11,color:'#fff1b3',align:'center'},role:{show:1,x:18.5,y:29,size:4.6,color:'#ffcc02',align:'center'},number:{show:1,x:77.5,y:28.5,size:6.2,color:'#ffcc02',align:'center'},name:{show:1,x:50,y:56.5,size:6.4,color:'#fff7bd',align:'center'},attrs:{show:1,x:50,y:67.5,size:6.4,color:'#fff2d0'},tierName:{show:1,x:50,y:85,size:5.2,color:'#ff6a00',align:'center'}},
   mythic:{photo:{show:1,x:50,y:31,w:66,h:42.5},logo:{show:1,x:79.5,y:19,w:22},overall:{show:1,x:19,y:18,size:12,color:'#fcdbff',align:'center'},role:{show:1,x:19,y:24.5,size:4.6,color:'#ffffff',align:'center'},number:{show:1,x:79,y:26.5,size:6.8,color:'#ffedfe',align:'center'},name:{show:1,x:50,y:57,size:7.2,color:'#ffd7ff',align:'center'},attrs:{show:1,x:50,y:72,size:6.6,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#efcaff',align:'center'}},
   diamond:{photo:{show:1,x:50,y:30,w:66,h:44},logo:{show:1,x:81.5,y:22,w:22.5},overall:{show:1,x:17,y:21,size:12,color:'#12fffe',align:'center'},role:{show:1,x:17.5,y:29.5,size:5.4,color:'#ffffff',align:'center'},number:{show:1,x:81.5,y:30,size:6.2,color:'#ffffff',align:'center'},name:{show:1,x:50,y:57.5,size:7.4,color:'#7bf7ff',align:'center'},attrs:{show:1,x:50,y:73,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#93e3fd',align:'center'}},
   gold:{photo:{show:1,x:50,y:26.5,w:66,h:49},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:11,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:6.2,color:'#fcfcff',align:'center'},number:{show:1,x:81.5,y:27.5,size:6.8,color:'#ffffff',align:'center'},name:{show:1,x:50,y:59.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:74.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:91,size:4.6,color:'#c49e00',align:'center'}},
   silver:{photo:{show:1,x:50,y:29.5,w:72,h:44},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:13.6,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:5.2,color:'#ffffff',align:'center'},number:{show:1,x:82,y:28,size:6.4,color:'#ffffff',align:'center'},name:{show:1,x:50,y:58.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:73.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:90,size:4,color:'#d6d6d6',align:'center'}}
 };
-const TIER_LABEL={goat:'GOAT',mythic:'MYTHIC',diamond:'DIAMOND',gold:'GOLD',silver:'SILVER'};
-const TIER_FRAME_CANDIDATES={goat:['goat.png','Goat_.png','Goat.png','goat_.png'],mythic:['mythic.png','Mythic_.png','Mythic.png','mythic_.png'],diamond:['diamond.png','Diamond_.png','Diamond.png','diamond_.png'],gold:['gold.png','Gold_.png','Gold.png','gold_.png'],silver:['silver.png','Silver_.png','Silver.png','silver_.png']};
+function deepMerge(base,over){ const o=JSON.parse(JSON.stringify(base)); if(over) Object.keys(over).forEach(k=>{ o[k]=(typeof over[k]==='object'&&!Array.isArray(over[k]))?deepMerge(o[k]||{},over[k]):over[k]; }); return o; }
+function getCardLayout(tier){ return deepMerge(BASE_CARD_LAYOUT, DEPLOY_CARD_LAYOUTS[tier]); }
 function ownLineupEntry(){
   const lu=P().lineup, p=P().p; if(!lu||!Array.isArray(lu.slots))return null;
   return lu.slots.find(s=>p.number!=null && s.number===p.number) || lu.slots.find(s=>s.playerName===p.name) || null;
 }
 function myTier(){
-  const e=ownLineupEntry(); if(e&&e.tier&&CARD_LAYOUTS[e.tier])return e.tier;
+  const e=ownLineupEntry(); if(e&&e.tier&&DEPLOY_CARD_LAYOUTS[e.tier])return e.tier;
   const o=overallOf(); if(o==null)return 'silver';
   if(o>=90)return 'goat'; if(o>=80)return 'mythic'; if(o>=70)return 'diamond'; if(o>=55)return 'gold'; return 'silver';
 }
 function myOverallForCard(){ const e=ownLineupEntry(); if(e&&e.overall!=null)return e.overall; return overallOf(); }
-function tierFrameImgTag(tier,cls){
-  const list=TIER_FRAME_CANDIDATES[tier]||TIER_FRAME_CANDIDATES.silver;
-  return `<img class="${cls}" src="cards/${list[0]}" onerror="this.onerror=null;this.src='cards/${list[1]}'">`;
+const CARD_SILHOUETTE="data:image/svg+xml;utf8,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 130"><g fill="rgba(255,255,255,.22)"><circle cx="50" cy="42" r="24"/><path d="M12 130c0-24 17-42 38-42s38 18 38 42z"/></g></svg>');
+function frameCandidates(tier){ const C=tier.charAt(0).toUpperCase()+tier.slice(1);
+  return [`cards/${tier}.png`,`cards/${C}_.png`,`cards/${C}.png`,`cards/${tier}_.png`]; }
+function tcFrameFallback(img){ const fb=(img.getAttribute('data-fb')||'').split('|').filter(Boolean);
+  if(fb.length){ img.src=fb[0]; img.setAttribute('data-fb',fb.slice(1).join('|')); } else { img.style.opacity=0; } }
+/* attributi stile FIFA: media dei voti allenamento per categoria (pkg.ex), ×10; se nessun voto -> stima dall'overall */
+const ATTR_MAP_P={
+  pallavolo:[['Attacco','ATT',['Attacco']],['Battuta','BAT',['Battuta']],['Ricezione','RIC',['Ricezione']],['Muro','MUR',['Muro']],['Difesa','DIF',['Difesa']],['Atletismo','ATL',['Fisico','Riscaldamento']]],
+  calcio:[['Finalizzazione','FIN',['Finalizzazione']],['Difesa','DIF',['Difesa']],['Tecnica','TEC',['Tecnica']],['Velocità','VEL',['Riscaldamento','Fisico']],['Possesso','POS',['Possesso']],['Transizioni','TRA',['Transizioni','Partite a tema']]],
+  calcio_gk:[['Portiere','POR',['Portieri']],['Difesa','DIF',['Difesa']],['Tecnica','TEC',['Tecnica']],['Velocità','VEL',['Riscaldamento','Fisico']],['Possesso','POS',['Possesso']],['Finalizzazione','FIN',['Finalizzazione']]],
+  basket:[['Tiro','TIR',['Tiro']],['Palleggio','PAL',['Palleggio']],['Difesa','DIF',['Difesa']],['Velocità','VEL',['Riscaldamento','Fisico']],['Rimbalzo','RIM',['Rimbalzo']],['Tattica','TAT',['Tattica','Transizione']]]
+};
+function myCatRatings(){
+  const acc={};
+  (P().ex||[]).forEach(tr=>{ (tr.items||[]).forEach(it=>{ if(it.grade!=null){ const c=it.cat||'?'; (acc[c]=acc[c]||{s:0,n:0}); acc[c].s+=it.grade; acc[c].n++; } }); });
+  const out={}; Object.keys(acc).forEach(c=>out[c]=acc[c].s/acc[c].n); return out;
 }
-function renderTierCardHTML(tier,photo,name,number,role,overall,team){
-  const L=CARD_LAYOUTS[tier]||CARD_LAYOUTS.silver;
-  const textEl=(k,val,extra='')=>{ const c=L[k]; if(!c||!c.show)return ''; return `<div style="position:absolute;left:${c.x}%;top:${c.y}%;transform:translate(${c.align==='center'?'-50%':'0'},-50%);font-weight:800;font-size:${c.size}cqw;color:${c.color};white-space:nowrap;text-align:${c.align||'left'}">${val}</div>${extra}`; };
-  const photoEl = L.photo && L.photo.show ? `<div style="position:absolute;left:${L.photo.x}%;top:${L.photo.y}%;width:${L.photo.w}%;height:${L.photo.h}%;transform:translate(-50%,-50%);overflow:hidden;border-radius:8px">${photo?`<img src="${photo}" style="width:100%;height:100%;object-fit:cover">`:`<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08);font-weight:800;font-size:22cqw;color:rgba(255,255,255,.5)">${initialsOf(name)}</div>`}</div>`:'';
-  const attrsEl = L.attrs && L.attrs.show ? `<div style="position:absolute;left:${L.attrs.x}%;top:${L.attrs.y}%;transform:translate(-50%,-50%);font-size:${L.attrs.size}cqw;color:${L.attrs.color};font-weight:700;white-space:nowrap">${roleAbbr(role)}</div>`:'';
-  return `<div class="tiercard" style="position:relative;width:100%;aspect-ratio:5/7;container-type:inline-size;border-radius:14px;overflow:hidden">
-    ${tierFrameImgTag(tier,'tc-frame')}
-    <style>.tc-frame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:1}</style>
+function myAttributes(){
+  const sport=sportOf(), cats=myCatRatings(), p=P().p, ovr=myOverallForCard()||60;
+  let defs=ATTR_MAP_P[sport]||ATTR_MAP_P.pallavolo;
+  if(sport==='calcio'){ const gk=/portier|^\s*p\s*$|^por/i.test((p&&p.role)||''); defs = gk?ATTR_MAP_P.calcio_gk:ATTR_MAP_P.calcio; }
+  return defs.map(([label,short,src])=>{
+    const vals=src.map(c=>cats[c]).filter(v=>v!=null);
+    let rating = vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length*10) : ovr;
+    return {label,short,rating:Math.max(1,Math.min(100,rating))};
+  });
+}
+function renderCardAttrs(el,width){
+  if(!el||!el.show) return '';
+  const cells=myAttributes().map(a=>`<div class="tc-attr"><b>${a.rating}</b><span>${a.short}</span></div>`).join('');
+  return `<div class="tc-attrs" style="left:${el.x}%;top:${el.y}%;transform:translate(-50%,-50%);font-size:${(el.size/100*width).toFixed(1)}px;color:${el.color}"><div class="tc-attr-grid">${cells}</div></div>`;
+}
+/* Render card, stesso ordinamento DOM/stacking del coach: frame z-index 0, contenuto sopra */
+function renderMyTierCard(width){
+  width=width||300; const H=width*1.4;
+  const p=P().p, tier=myTier(), L=getCardLayout(tier), ovr=myOverallForCard();
+  const photoSrc = PL_PHOTO || CARD_SILHOUETTE;
+  const alignT=a=>a==='left'?'0':a==='right'?'-100%':'-50%';
+  const txt=(key,val)=>{ const e=L[key]; if(!e||!e.show||val==null||val==='')return '';
+    return `<div class="tc-el" style="left:${e.x}%;top:${e.y}%;transform:translate(${alignT(e.align)},-50%);font-size:${(e.size/100*width).toFixed(1)}px;color:${e.color};text-align:${e.align}">${val}</div>`; };
+  const ph=L.photo; const photoEl = ph&&ph.show ? `<div class="tc-photo" style="left:${ph.x}%;top:${ph.y}%;width:${ph.w}%;height:${(ph.h/100*H/width*100).toFixed(2)}%"><img src="${photoSrc}"></div>`:'';
+  const cands=frameCandidates(tier);
+  return `<div class="tiercard tier-${tier}" style="width:${width}px;height:${H}px">
+    <img class="tc-frame" src="${cands[0]}" data-fb="${cands.slice(1).join('|')}" onerror="tcFrameFallback(this)" alt="">
     ${photoEl}
-    ${textEl('overall',overall!=null?overall:'—')}
-    ${textEl('number','#'+(number||''))}
-    ${attrsEl}
-    ${textEl('name',name||'')}
-    ${textEl('tierName',TIER_LABEL[tier]||'')}
+    ${txt('overall',ovr!=null?ovr:'—')}
+    ${txt('role',roleAbbr(p.role))}
+    ${txt('number','#'+(p.number||''))}
+    ${txt('name',(p.name||'').toUpperCase())}
+    ${renderCardAttrs(L.attrs,width)}
+    ${txt('tierName',TIER_LABEL[tier])}
   </div>`;
 }
+function cardCSS(){
+  if(document.getElementById('tier-card-css')) return;
+  const st=document.createElement('style'); st.id='tier-card-css';
+  st.textContent=`
+  .tiercard{position:relative;border-radius:12px;font-family:'Outfit',sans-serif;font-weight:900;overflow:hidden;margin:0 auto;}
+  .tiercard .tc-frame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:0;pointer-events:none;}
+  .tiercard .tc-photo{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:1;}
+  .tiercard .tc-photo img{width:100%;height:100%;object-fit:contain;object-position:bottom;}
+  .tiercard .tc-el{position:absolute;white-space:nowrap;line-height:1;text-shadow:0 2px 6px rgba(0,0,0,.5);letter-spacing:.5px;z-index:2;}
+  .tiercard .tc-attrs{position:absolute;z-index:2;text-shadow:0 2px 6px rgba(0,0,0,.55);font-family:'Outfit',sans-serif;}
+  .tc-attr-grid{display:grid;grid-template-columns:auto auto;gap:.15em 1.1em;}
+  .tc-attr{display:flex;align-items:baseline;gap:.3em;line-height:1;}
+  .tc-attr b{font-weight:900;font-variant-numeric:tabular-nums;} .tc-attr span{font-weight:800;opacity:.72;font-size:.7em;letter-spacing:.5px;}
+  `;
+  document.head.appendChild(st);
+}
 function openMyCard(){
-  plMediaCSS();
-  const p=P().p, sport=sportOf(), tier=myTier(), ovr=myOverallForCard();
-  const cells=(P().season.cells||[]).slice(0,4);
-  const stats=cells.length?cells.map(c=>`<div class="st"><span>${c[0]}</span> ${c[1]}${c[2]||''}</div>`).join('')
-     :`<div class="st"><span>Media voto</span> ${P().season.avgVoto?P().season.avgVoto.toFixed(1):'—'}</div><div class="st"><span>Presenza</span> ${P().attPct!=null?P().attPct+'%':'—'}</div>`;
-  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-id-card" style="color:var(--brand)"></i> La mia card</h3>
+  plMediaCSS(); cardCSS();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-id-card" style="color:var(--brand)"></i> La mia card <span class="pill" style="margin-left:6px">${TIER_LABEL[myTier()]}</span></h3>
       <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body fc-wrap">
-      ${renderTierCardHTML(tier,PL_PHOTO,p.name,p.number,p.role,ovr,P().team)}
-      <div class="stats" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">${stats}</div>
+      ${renderMyTierCard(300)}
       <button class="btn btn-accent" style="width:100%;margin-top:16px" onclick="pickPhoto()"><i class="fa-solid fa-camera"></i> ${PL_PHOTO?'Cambia foto':'Aggiungi la tua foto'}</button>
       ${PL_PHOTO?'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="removePhoto()"><i class="fa-solid fa-trash"></i> Rimuovi foto</button>':''}
     </div>`);
