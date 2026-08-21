@@ -3,6 +3,7 @@
    Importa un "pacchetto profilo" generato dall'app del coach.
    ========================================================= */
 'use strict';
+const APP_VERSION='1.2.0';
 const LS='vtm_player_db';
 const MONTHS=['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
 const today=()=>new Date(new Date().toDateString());
@@ -45,6 +46,18 @@ function load(){ try{const r=localStorage.getItem(LS); if(r)return JSON.parse(r)
 let S=load();
 function save(){ localStorage.setItem(LS,JSON.stringify(S)); }
 const P=()=>S.pkg;
+
+/* ---------- Mental Gym: stato locale (chiave dedicata, nessuna collisione con LS) ---------- */
+const MG_LS='vtm_mg_v1';
+function mgLoad(){ try{const r=localStorage.getItem(MG_LS); if(r)return JSON.parse(r);}catch(e){} return {calib:null,reaction:[],stroop:[],peripheral:[]}; }
+let MG=mgLoad();
+function mgSave(){ localStorage.setItem(MG_LS,JSON.stringify(MG)); }
+
+/* ---------- Check-in benessere: stato locale (chiave dedicata, nessuna collisione con LS/MG_LS) ---------- */
+const WL_LS='vtm_wellness_v1';
+function wlLoad(){ try{const r=localStorage.getItem(WL_LS); if(r)return JSON.parse(r);}catch(e){} return {gender:null,checkins:[]}; }
+let WL=wlLoad();
+function wlSave(){ localStorage.setItem(WL_LS,JSON.stringify(WL)); }
 
 /* ---------- import ---------- */
 function decode(code){ return JSON.parse(decodeURIComponent(escape(atob(code.trim())))); }
@@ -134,9 +147,11 @@ function renderProfilo(){
                 <div class="chip ${f.d}">Forma <span class="v">${f.t}</span></div>
                 <div class="chip">Presenza <span class="v num">${P().attPct!=null?P().attPct+'%':'—'}</span></div>
             </div>
-            <div style="display:flex;gap:8px;width:100%">
-                <button class="pl-cardbtn" style="flex:1" onclick="openMyCard()"><i class="fa-solid fa-id-card"></i> La mia card</button>
-                ${P().lineup?`<button class="pl-cardbtn" style="flex:1" onclick="openLineup()"><i class="fa-solid fa-people-group"></i> Formazione</button>`:''}
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%">
+                <button class="pl-cardbtn" onclick="openMyCard()"><i class="fa-solid fa-id-card"></i> La mia card</button>
+                ${P().lineup?`<button class="pl-cardbtn" onclick="openLineup()"><i class="fa-solid fa-people-group"></i> Formazione</button>`:''}
+                <button class="pl-cardbtn" onclick="mgOpen()"><i class="fa-solid fa-brain"></i> Mental Gym</button>
+                <button class="pl-cardbtn" onclick="wlOpen()"><i class="fa-solid fa-heart-pulse"></i> Check-in benessere</button>
             </div>
         </div>
         ${next}${goal}`;
@@ -245,7 +260,7 @@ function go(tab){
     window.scrollTo({top:0,behavior:'instant'});
 }
 function openModal(html){document.getElementById('modal').innerHTML=html;document.getElementById('modal-overlay').classList.add('show');}
-function closeModal(){document.getElementById('modal-overlay').classList.remove('show');}
+function closeModal(){document.getElementById('modal-overlay').classList.remove('show');if(typeof mgBump==='function')mgBump();}
 document.getElementById('modal-overlay').addEventListener('click',e=>{if(e.target.id==='modal-overlay')closeModal();});
 function toast(msg,type='success'){
     const s=document.getElementById('toast-stack');const el=document.createElement('div');el.className=`toast ${type}`;
@@ -739,4 +754,476 @@ function openLineup(){
         ${tokens}
       </div>
     </div>`);
+}
+
+/* =========================================================
+   MENTAL GYM — 3 mini-test cognitivi + calibrazione dispositivo
+   Solo dati locali (localStorage, chiave MG_LS). Nessun invio al mister.
+   ========================================================= */
+function mgCSS(){
+  if(document.getElementById('mg-css'))return;
+  const st=document.createElement('style'); st.id='mg-css';
+  st.textContent=`
+  .mg-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .mg-tile{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:14px;padding:1rem;text-align:center;cursor:pointer;transition:.15s;}
+  .mg-tile:hover{border-color:var(--brand);}
+  .mg-tile.locked{opacity:.5;filter:grayscale(.5);cursor:default;}
+  .mg-tile .ic{font-size:1.6rem;color:var(--brand);margin-bottom:6px;}
+  .mg-tile.locked .ic{color:var(--muted-2);}
+  .mg-tile b{display:block;font-size:.86rem;}
+  .mg-tile .pb{font-size:.7rem;color:var(--muted);margin-top:4px;line-height:1.3;}
+  .mg-disclaimer{font-size:.76rem;color:var(--muted-2);margin-top:1rem;line-height:1.4;background:var(--surface-2);border:1px solid var(--line-soft);border-radius:12px;padding:.7rem .8rem;display:flex;gap:8px;align-items:flex-start;}
+  .mg-disclaimer i{margin-top:2px;flex-shrink:0;}
+  .mg-stage{position:relative;background:var(--surface-2);border:1px solid var(--line-soft);border-radius:16px;height:min(58vh,440px);display:flex;align-items:center;justify-content:center;overflow:hidden;margin:1rem 0;}
+  .mg-circle{width:120px;height:120px;border-radius:50%;background:var(--surface-3);border:3px solid var(--line);transition:background .12s,border-color .12s;display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:700;font-size:.85rem;text-align:center;cursor:pointer;user-select:none;}
+  .mg-circle.go{background:var(--brand);border-color:var(--brand);color:#04140A;}
+  .mg-word{font-family:'Outfit',sans-serif;font-weight:900;font-size:2.1rem;text-align:center;letter-spacing:.5px;}
+  .mg-choices{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:1.1rem;}
+  .mg-choice{border:none;border-radius:12px;padding:16px;font-weight:800;color:#04140A;cursor:pointer;font-family:'Outfit',sans-serif;font-size:.92rem;}
+  .mg-fix{width:12px;height:12px;border-radius:50%;background:var(--muted);position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);}
+  .mg-zone{position:absolute;width:22%;height:22%;border-radius:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;cursor:pointer;}
+  .mg-zone .dot{width:26px;height:26px;border-radius:50%;background:transparent;transition:background .1s;}
+  .mg-zone.on .dot{background:var(--brand);box-shadow:0 0 16px 5px var(--brand-glow);}
+  .mg-result{text-align:center;padding:.6rem 0 .2rem;}
+  .mg-result .big{font-family:'Outfit',sans-serif;font-weight:900;font-size:2.3rem;color:var(--brand);}
+  .mg-hist{margin-top:1.1rem;}
+  .mg-hist .row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:.82rem;color:var(--text);}
+  .mg-hist .row:last-child{border:none;}
+  `;
+  document.head.appendChild(st);
+}
+let MG_GEN=0;
+function mgBump(){ MG_GEN++; return MG_GEN; }
+function mgCorrect(raw){ const b=(MG.calib&&MG.calib.baseline)||0; return Math.max(0,Math.round(raw-b)); }
+function mgHistRows(arr,fmtFn){
+  if(!arr||!arr.length) return `<div style="color:var(--muted-2);font-size:.82rem;padding:.6rem 0">Nessun tentativo ancora.</div>`;
+  return arr.slice(-5).slice().reverse().map(e=>`<div class="row">${fmtFn(e)}</div>`).join('');
+}
+function mgBestOf(arr){ if(!arr||!arr.length) return null; return arr.reduce((best,e)=>mgIsBetter(e,best)?e:best,null); }
+function mgIsBetter(e,best){
+  if(!best) return true;
+  if(e.accuracy!==best.accuracy) return e.accuracy>best.accuracy;
+  const ea=e.avgTime==null?Infinity:e.avgTime, ba=best.avgTime==null?Infinity:best.avgTime;
+  return ea<ba;
+}
+function mgPbLabel(e){ return e? `${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}` : '—'; }
+function mgReactionBestVal(arr){ if(!arr||!arr.length) return null; return arr.reduce((m,x)=>x.corrected<m?x.corrected:m,arr[0].corrected); }
+function mgReactionPB(){ const b=mgReactionBestVal(MG.reaction); return b!=null?`PB: ${b} ms`:'Nessun tentativo ancora'; }
+function mgStroopPB(){ const b=mgBestOf(MG.stroop); return b?`PB: ${mgPbLabel(b)}`:'Nessun tentativo ancora'; }
+function mgPeripheralPB(){ const b=mgBestOf(MG.peripheral); return b?`PB: ${mgPbLabel(b)}`:'Nessun tentativo ancora'; }
+
+/* ---------- schermata elenco Mental Gym ---------- */
+function mgOpen(){
+  mgCSS(); mgBump();
+  const tiles=[
+    {id:'reaction',ic:'fa-bolt',label:'Tempo di reazione',pb:mgReactionPB()},
+    {id:'stroop',ic:'fa-palette',label:'Stroop test',pb:mgStroopPB()},
+    {id:'peripheral',ic:'fa-eye',label:'Vista periferica',pb:mgPeripheralPB()}
+  ];
+  const tileHtml=tiles.map(t=>`<div class="mg-tile" onclick="mgOpenGame('${t.id}')"><div class="ic"><i class="fa-solid ${t.ic}"></i></div><b>${t.label}</b><div class="pb">${t.pb}</div></div>`).join('');
+  const lockedTile=`<div class="mg-tile locked"><div class="ic"><i class="fa-solid fa-lock"></i></div><b>Prossimamente</b><div class="pb">Stiamo creando nuovi allenamenti mentali per te</div></div>`;
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-brain" style="color:var(--brand)"></i> Mental Gym</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-grid">${tileHtml}${lockedTile}</div>
+      <div class="mg-disclaimer"><i class="fa-solid fa-circle-info"></i> Il punteggio dipende anche dal tuo dispositivo: usalo per seguire i tuoi progressi nel tempo, non per confrontarti con dispositivi diversi dal tuo.</div>
+      <button class="btn btn-ghost" style="width:100%;margin-top:1rem" onclick="mgRecalibrate()"><i class="fa-solid fa-crosshairs"></i> Ricalibra dispositivo</button>
+    </div>`);
+}
+function mgOpenGame(id){
+  if(!MG.calib){ mgStartCalibration(id); return; }
+  if(id==='reaction') mgReactionIntro();
+  else if(id==='stroop') mgStroopIntro();
+  else if(id==='peripheral') mgPeripheralIntro();
+}
+function mgRecalibrate(){ mgStartCalibration(null); }
+
+/* ---------- calibrazione dispositivo (una tantum, riusata dai 3 giochi) ---------- */
+let MG_CALIB={n:0,times:[],afterId:null,gen:0};
+function mgStartCalibration(afterId){
+  mgCSS(); mgBump();
+  MG_CALIB={n:0,times:[],afterId,gen:MG_GEN};
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-crosshairs" style="color:var(--brand)"></i> Calibrazione dispositivo</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">Prima di iniziare misuriamo il tempo di risposta del tuo dispositivo: serve a rendere i punteggi confrontabili nel tempo. Tocca il bersaglio verde il più veloce possibile, 5 volte.</p>
+      <div class="mg-stage"><div class="mg-circle" id="mg-cal-circle">Preparati…</div></div>
+      <div style="text-align:center;color:var(--muted);font-size:.82rem">Tentativo <b id="mg-cal-n" class="num">0</b> di 5</div>
+    </div>`);
+  const myGen=MG_GEN;
+  setTimeout(()=>{ if(myGen===MG_GEN) mgCalibRound(); },900);
+}
+function mgCalibRound(){
+  if(MG_CALIB.gen!==MG_GEN) return;
+  const circle=document.getElementById('mg-cal-circle'); if(!circle) return;
+  circle.textContent='Attendi…'; circle.classList.remove('go'); circle.onclick=null;
+  const wait=300+Math.random()*600, myGen=MG_GEN;
+  setTimeout(()=>{
+    if(myGen!==MG_GEN) return;
+    const c=document.getElementById('mg-cal-circle'); if(!c) return;
+    c.textContent='TOCCA!'; c.classList.add('go');
+    const t0=performance.now();
+    c.onclick=()=>{
+      if(myGen!==MG_GEN) return;
+      MG_CALIB.times.push(performance.now()-t0); MG_CALIB.n++;
+      const nEl=document.getElementById('mg-cal-n'); if(nEl) nEl.textContent=String(MG_CALIB.n);
+      if(MG_CALIB.n>=5) mgCalibFinish();
+      else setTimeout(()=>{ if(myGen===MG_GEN) mgCalibRound(); },400);
+    };
+  },wait);
+}
+function mgCalibFinish(){
+  const avg=MG_CALIB.times.reduce((a,b)=>a+b,0)/MG_CALIB.times.length;
+  MG.calib={baseline:Math.round(avg),date:new Date().toISOString()};
+  mgSave();
+  toast('Calibrazione completata');
+  if(MG_CALIB.afterId) mgOpenGame(MG_CALIB.afterId); else mgOpen();
+}
+
+/* ---------- GIOCO 1: tempo di reazione ---------- */
+function mgReactionIntro(){
+  mgCSS(); mgBump();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-bolt" style="color:var(--brand)"></i> Tempo di reazione</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">Il cerchio resterà grigio per un tempo casuale, poi diventerà VERDE: toccalo il più veloce possibile. Se tocchi troppo presto si riparte.</p>
+      <div class="mg-stage"><div class="mg-circle" id="mg-r-circle">Preparati…</div></div>
+    </div>`);
+  const myGen=MG_GEN;
+  setTimeout(()=>{ if(myGen===MG_GEN) mgReactionRoundStart(); },600);
+}
+function mgReactionRoundStart(){
+  const myGen=MG_GEN;
+  const c=document.getElementById('mg-r-circle'); if(!c) return;
+  c.textContent='Attendi…'; c.classList.remove('go');
+  c.onclick=()=>{ if(myGen!==MG_GEN) return; mgReactionTooEarly(); };
+  const wait=1000+Math.random()*3000;
+  setTimeout(()=>{
+    if(myGen!==MG_GEN) return;
+    const cc=document.getElementById('mg-r-circle'); if(!cc) return;
+    cc.textContent='VAI!'; cc.classList.add('go');
+    const t0=performance.now();
+    cc.onclick=()=>{ if(myGen!==MG_GEN) return; mgReactionResult(performance.now()-t0); };
+  },wait);
+}
+function mgReactionTooEarly(){ toast('Troppo presto, riprova','danger'); mgReactionRoundStart(); }
+function mgReactionResult(raw){
+  const corrected=mgCorrect(raw);
+  const pbBefore=mgReactionBestVal(MG.reaction);
+  MG.reaction.push({date:new Date().toISOString(),raw:Math.round(raw),corrected}); mgSave();
+  const isNewPB=pbBefore!=null && corrected<pbBefore;
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${pbBefore} ms`);
+  const histHtml=mgHistRows(MG.reaction,e=>`<span>${fmt(e.date)}</span><span>${e.corrected} ms</span>`);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-bolt" style="color:var(--brand)"></i> Tempo di reazione</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-result"><div class="big num">${corrected} ms</div><div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgReactionIntro()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
+      <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
+    </div>`);
+}
+
+/* ---------- GIOCO 2: Stroop test ---------- */
+const MG_COLORS=[['Rosso','#F0463C'],['Blu','#3B82F6'],['Verde','#22C55E'],['Giallo','#F5B301']];
+let MG_S={i:0,correct:0,times:[],gen:0,t0:0};
+function mgStroopIntro(){
+  mgCSS(); mgBump();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-palette" style="color:var(--brand)"></i> Stroop test</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">Vedrai una parola-colore scritta in un colore diverso da quello che nomina. Tocca il bottone del COLORE IN CUI È SCRITTA la parola, non quello che nomina. 10 stimoli.</p>
+      <button class="btn btn-accent" style="width:100%" onclick="mgStroopStart()"><i class="fa-solid fa-play"></i> Inizia</button>
+    </div>`);
+}
+function mgStroopStart(){ mgBump(); MG_S={i:0,correct:0,times:[],gen:MG_GEN,t0:0}; mgStroopRound(); }
+function mgStroopRound(){
+  if(MG_S.gen!==MG_GEN) return;
+  if(MG_S.i>=10){ mgStroopResult(); return; }
+  const nameIdx=Math.floor(Math.random()*MG_COLORS.length);
+  let dispIdx=Math.floor(Math.random()*MG_COLORS.length);
+  while(dispIdx===nameIdx) dispIdx=Math.floor(Math.random()*MG_COLORS.length);
+  const word=MG_COLORS[nameIdx][0].toUpperCase(), dispColor=MG_COLORS[dispIdx][1];
+  const btnsHtml=MG_COLORS.map((c,ci)=>`<button class="mg-choice" style="background:${c[1]}" onclick="mgStroopAnswer(${ci},${dispIdx})">${c[0]}</button>`).join('');
+  document.getElementById('modal').innerHTML=`<div class="modal-head"><h3><i class="fa-solid fa-palette" style="color:var(--brand)"></i> Stroop test <span style="color:var(--muted);font-size:.76rem;margin-left:6px" class="num">${MG_S.i+1}/10</span></h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-word" style="color:${dispColor}">${word}</div>
+      <div class="mg-choices">${btnsHtml}</div>
+    </div>`;
+  MG_S.t0=performance.now();
+}
+function mgStroopAnswer(chosenIdx,correctIdx){
+  if(MG_S.gen!==MG_GEN) return;
+  const raw=performance.now()-MG_S.t0;
+  if(chosenIdx===correctIdx){ MG_S.correct++; MG_S.times.push(mgCorrect(raw)); }
+  MG_S.i++; mgStroopRound();
+}
+function mgStroopResult(){
+  const accuracy=Math.round(MG_S.correct/10*100);
+  const avgTime=MG_S.times.length?Math.round(MG_S.times.reduce((a,b)=>a+b,0)/MG_S.times.length):null;
+  const entry={date:new Date().toISOString(),avgTime,accuracy};
+  const pbBefore=mgBestOf(MG.stroop);
+  MG.stroop.push(entry); mgSave();
+  const isNewPB=mgIsBetter(entry,pbBefore) && pbBefore!=null;
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.stroop,e=>`<span>${fmt(e.date)}</span><span>${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}</span>`);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-palette" style="color:var(--brand)"></i> Stroop test</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-result"><div class="big num">${accuracy}%</div><div style="color:var(--muted)">Tempo medio risposte corrette: ${avgTime!=null?avgTime+' ms':'—'}</div>
+      <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgStroopStart()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
+      <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
+    </div>`);
+}
+
+/* ---------- GIOCO 3: vista periferica ---------- */
+const MG_ZONES=[{id:0,x:50,y:8},{id:1,x:85,y:15},{id:2,x:92,y:50},{id:3,x:85,y:85},{id:4,x:50,y:92},{id:5,x:15,y:85},{id:6,x:8,y:50},{id:7,x:15,y:15}];
+let MG_P={i:0,correct:0,times:[],gen:0,curZone:null,answered:false,t0:0};
+function mgPeripheralIntro(){
+  mgCSS(); mgBump();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-eye" style="color:var(--brand)"></i> Vista periferica</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">Tieni lo sguardo fisso sul puntino al centro per tutta la durata del test. Un piccolo pallino apparirà per una frazione di secondo ai bordi: toccalo SENZA spostare gli occhi dal centro. Non possiamo verificare tecnicamente dove guardi: il test ha senso solo se rispetti questa regola. 10 round.</p>
+      <button class="btn btn-accent" style="width:100%" onclick="mgPeripheralStart()"><i class="fa-solid fa-play"></i> Inizia</button>
+    </div>`);
+}
+function mgPeripheralStart(){ mgBump(); MG_P={i:0,correct:0,times:[],gen:MG_GEN,curZone:null,answered:false,t0:0}; mgPeripheralRenderStage(); mgPeripheralRound(); }
+function mgPeripheralRenderStage(){
+  const zonesHtml=MG_ZONES.map(z=>`<div class="mg-zone" id="mg-z${z.id}" style="left:${z.x}%;top:${z.y}%" onclick="mgPeripheralTap(${z.id})"><div class="dot"></div></div>`).join('');
+  document.getElementById('modal').innerHTML=`<div class="modal-head"><h3><i class="fa-solid fa-eye" style="color:var(--brand)"></i> Vista periferica <span style="color:var(--muted);font-size:.76rem;margin-left:6px" class="num" id="mg-p-count">1/10</span></h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-stage" style="height:min(50vh,360px)"><div class="mg-fix"></div>${zonesHtml}</div>
+      <p style="text-align:center;color:var(--muted-2);font-size:.8rem">Sguardo fisso al centro</p>
+    </div>`;
+}
+function mgPeripheralRound(){
+  if(MG_P.gen!==MG_GEN) return;
+  if(MG_P.i>=10){ mgPeripheralResult(); return; }
+  const cEl=document.getElementById('mg-p-count'); if(cEl) cEl.textContent=`${MG_P.i+1}/10`;
+  const wait=600+Math.random()*800, myGen=MG_GEN;
+  setTimeout(()=>{
+    if(myGen!==MG_GEN) return;
+    const zone=Math.floor(Math.random()*MG_ZONES.length);
+    MG_P.curZone=zone; MG_P.answered=false;
+    const el=document.getElementById('mg-z'+zone); if(!el) return;
+    el.classList.add('on');
+    MG_P.t0=performance.now();
+    const dur=400+Math.random()*200;
+    setTimeout(()=>{ if(myGen===MG_GEN) el.classList.remove('on'); },dur);
+    setTimeout(()=>{
+      if(myGen!==MG_GEN) return;
+      if(!MG_P.answered){ MG_P.answered=true; MG_P.i++; mgPeripheralRound(); }
+    },1300);
+  },wait);
+}
+function mgPeripheralTap(zoneId){
+  if(MG_P.curZone==null || MG_P.answered) return;
+  MG_P.answered=true;
+  const raw=performance.now()-MG_P.t0;
+  if(zoneId===MG_P.curZone){ MG_P.correct++; MG_P.times.push(mgCorrect(raw)); }
+  const el=document.getElementById('mg-z'+MG_P.curZone); if(el) el.classList.remove('on');
+  MG_P.i++;
+  const myGen=MG_GEN;
+  setTimeout(()=>{ if(myGen===MG_GEN) mgPeripheralRound(); },350);
+}
+function mgPeripheralResult(){
+  const accuracy=Math.round(MG_P.correct/10*100);
+  const avgTime=MG_P.times.length?Math.round(MG_P.times.reduce((a,b)=>a+b,0)/MG_P.times.length):null;
+  const entry={date:new Date().toISOString(),avgTime,accuracy};
+  const pbBefore=mgBestOf(MG.peripheral);
+  MG.peripheral.push(entry); mgSave();
+  const isNewPB=mgIsBetter(entry,pbBefore) && pbBefore!=null;
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.peripheral,e=>`<span>${fmt(e.date)}</span><span>${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}</span>`);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-eye" style="color:var(--brand)"></i> Vista periferica</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-result"><div class="big num">${accuracy}%</div><div style="color:var(--muted)">Tempo medio reazione: ${avgTime!=null?avgTime+' ms':'—'}</div>
+      <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgPeripheralStart()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
+      <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
+    </div>`);
+}
+
+/* =========================================================
+   CHECK-IN BENESSERE — form locale (sonno, affaticamento, umore, mappa corporea)
+   Solo dati locali (localStorage, chiave WL_LS). Nessun invio al mister.
+   ========================================================= */
+function wlCSS(){
+  if(document.getElementById('wl-css'))return;
+  const st=document.createElement('style'); st.id='wl-css';
+  st.textContent=`
+  .wl-gender-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .wl-gender-card{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:14px;padding:1rem;text-align:center;cursor:pointer;transition:.15s;}
+  .wl-gender-card:hover{border-color:var(--brand);}
+  .wl-gender-card img{width:100%;max-width:96px;margin:0 auto .5rem;display:block;}
+  .wl-slider-row{margin-bottom:1.1rem;}
+  .wl-slider-row .lbl{display:flex;justify-content:space-between;font-size:.82rem;font-weight:700;margin-bottom:6px;}
+  .wl-slider-row .lbl .v{color:var(--brand);}
+  .wl-slider-row input[type=range]{width:100%;accent-color:var(--brand);}
+  .wl-scale-labels{display:flex;justify-content:space-between;font-size:.66rem;color:var(--muted-2);margin-top:2px;}
+  .wl-body-head{display:flex;justify-content:space-between;align-items:center;margin:1.2rem 0 .6rem;flex-wrap:wrap;gap:8px;}
+  .wl-toggle{display:flex;gap:6px;}
+  .wl-toggle button{background:var(--surface-2);border:1px solid var(--line);color:var(--muted);padding:6px 12px;border-radius:20px;font-size:.74rem;font-weight:700;cursor:pointer;font-family:'Urbanist';}
+  .wl-toggle button.on{background:var(--brand);color:#04140A;border-color:var(--brand);}
+  .wl-map{position:relative;width:100%;max-width:240px;margin:0 auto;aspect-ratio:620/1120;border-radius:14px;overflow:hidden;background:var(--surface-2);border:1px solid var(--line-soft);cursor:crosshair;}
+  .wl-map img{width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none;}
+  .wl-marker{position:absolute;width:24px;height:24px;border-radius:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;color:#04140A;font-weight:800;font-size:.7rem;border:2px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(0,0,0,.45);cursor:pointer;}
+  .wl-hint{text-align:center;color:var(--muted-2);font-size:.74rem;margin-top:8px;}
+  .wl-pending{background:var(--surface-2);border:1px solid var(--brand);border-radius:14px;padding:.9rem;margin-top:.8rem;}
+  .wl-pending .t{font-size:.8rem;font-weight:700;margin-bottom:8px;}
+  .wl-int-row{display:flex;gap:6px;}
+  .wl-int-btn{flex:1;border:none;border-radius:10px;padding:10px 0;font-weight:800;color:#04140A;cursor:pointer;font-family:'Outfit',sans-serif;}
+  .wl-zonelist{margin-top:.6rem;}
+  .wl-zonelist .row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:.8rem;}
+  .wl-zonelist .row:last-child{border:none;}
+  .wl-zonelist .row .dot{width:13px;height:13px;border-radius:50%;flex-shrink:0;}
+  .wl-zonelist .row .x{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.9rem;padding:4px;}
+  .wl-hist .row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:.8rem;}
+  .wl-hist .row:last-child{border:none;}
+  .wl-hist .row span:last-child{color:var(--muted);text-align:right;}
+  `;
+  document.head.appendChild(st);
+}
+const WL_FATICA_LABELS=['Fresco','In forma','Nella norma','Stanco','Esausto'];
+const WL_UMORE_LABELS=['Giù','Sottotono','Nella norma','Carico','Al top'];
+const WL_INT_COLORS=['#22C55E','#84CC16','#F5B301','#F0763C','#F0463C'];
+let WL_DRAFT=null;
+function wlIntensityColor(n){ return WL_INT_COLORS[Math.max(1,Math.min(5,n))-1]; }
+function wlFreshDraft(){ return {view:'front',zones:[],sonno:8,fatica:3,umore:3,pending:null}; }
+
+/* ---------- selezione MASCHIO/FEMMINA (una tantum, modificabile) ---------- */
+function wlGenderPicker(fromForm){
+  wlCSS();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-person" style="color:var(--brand)"></i> Check-in benessere</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem;margin-bottom:1rem">Scegli la sagoma da usare per segnalare le zone del corpo. Potrai cambiarla in qualsiasi momento.</p>
+      <div class="wl-gender-grid">
+        <div class="wl-gender-card" onclick="wlSetGender('male')"><img src="body/male.png" alt="Maschio"><b>Maschio</b></div>
+        <div class="wl-gender-card" onclick="wlSetGender('female')"><img src="body/female.png" alt="Femmina"><b>Femmina</b></div>
+      </div>
+      ${fromForm?'<button class="btn btn-ghost" style="width:100%;margin-top:1rem" onclick="wlForm()"><i class="fa-solid fa-arrow-left"></i> Annulla</button>':''}
+    </div>`);
+}
+function wlSetGender(g){
+  WL.gender=g; wlSave();
+  if(!WL_DRAFT) WL_DRAFT=wlFreshDraft();
+  wlForm();
+}
+
+/* ---------- form check-in ---------- */
+function wlOpen(){
+  wlCSS();
+  if(!WL.gender){ wlGenderPicker(false); return; }
+  WL_DRAFT=wlFreshDraft();
+  wlForm();
+}
+function wlBodyImg(){
+  const g=WL.gender==='female'?'female':'male';
+  return `body/${g}${WL_DRAFT.view==='back'?'_back':''}.png`;
+}
+function wlMapMarkers(){
+  return WL_DRAFT.zones.map((z,i)=>({z,i})).filter(o=>o.z.view===WL_DRAFT.view)
+    .map(o=>`<div class="wl-marker" style="left:${o.z.x}%;top:${o.z.y}%;background:${wlIntensityColor(o.z.intensita)}" onclick="event.stopPropagation();wlMarkerTap(${o.i})">${o.z.intensita}</div>`).join('');
+}
+function wlZoneListHtml(){
+  if(!WL_DRAFT.zones.length) return `<div style="color:var(--muted-2);font-size:.8rem;padding:.4rem 0">Nessuna zona segnalata in questo check-in.</div>`;
+  return `<div class="wl-zonelist">${WL_DRAFT.zones.map((z,i)=>`<div class="row"><span class="dot" style="background:${wlIntensityColor(z.intensita)}"></span><span>${z.view==='back'?'Retro':'Fronte'} · intensità ${z.intensita}/5</span><button class="x" onclick="wlRemoveZone(${i})" title="Rimuovi"><i class="fa-solid fa-xmark"></i></button></div>`).join('')}</div>`;
+}
+function wlPendingHtml(){
+  if(!WL_DRAFT.pending) return '';
+  const isEdit=WL_DRAFT.pending.mode==='edit';
+  const curVal=isEdit?WL_DRAFT.zones[WL_DRAFT.pending.idx].intensita:0;
+  const btns=[1,2,3,4,5].map(n=>`<button class="wl-int-btn" style="background:${wlIntensityColor(n)};${curVal===n?'outline:2px solid #fff':''}" onclick="wlPendingSetIntensity(${n})">${n}</button>`).join('');
+  return `<div class="wl-pending">
+    <div class="t">${isEdit?'Modifica intensità della zona':'Che intensità di fastidio senti qui?'} (1 = lieve, 5 = forte)</div>
+    <div class="wl-int-row">${btns}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      ${isEdit?`<button class="btn btn-ghost" style="flex:1" onclick="wlPendingRemove()"><i class="fa-solid fa-xmark"></i> Rimuovi zona</button>`:''}
+      <button class="btn btn-ghost" style="flex:1" onclick="wlPendingCancel()">Annulla</button>
+    </div>
+  </div>`;
+}
+function wlForm(){
+  wlCSS();
+  const histHtml=WL.checkins.length? WL.checkins.slice(-5).slice().reverse().map(e=>`<div class="row"><span>${fmt(e.date)}</span><span>${wlSummary(e)}</span></div>`).join('') : `<div style="color:var(--muted-2);font-size:.82rem;padding:.4rem 0">Nessun check-in registrato ancora.</div>`;
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-heart-pulse" style="color:var(--brand)"></i> Check-in benessere</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.86rem;margin-bottom:1rem">Compilalo quando vuoi, non è obbligatorio né giornaliero. Resta solo sul tuo dispositivo.</p>
+
+      <div class="wl-slider-row">
+        <div class="lbl"><span>Ore di sonno</span><span class="v num" id="wl-sonno-v">${(+WL_DRAFT.sonno).toFixed(1).replace('.0','')}h</span></div>
+        <input type="range" min="0" max="12" step="0.5" value="${WL_DRAFT.sonno}" oninput="WL_DRAFT.sonno=+this.value;document.getElementById('wl-sonno-v').textContent=(+this.value).toFixed(1).replace('.0','')+'h'">
+      </div>
+
+      <div class="wl-slider-row">
+        <div class="lbl"><span>Affaticamento generale</span><span class="v" id="wl-fatica-v">${WL_FATICA_LABELS[WL_DRAFT.fatica-1]}</span></div>
+        <input type="range" min="1" max="5" step="1" value="${WL_DRAFT.fatica}" oninput="WL_DRAFT.fatica=+this.value;document.getElementById('wl-fatica-v').textContent=WL_FATICA_LABELS[this.value-1]">
+        <div class="wl-scale-labels"><span>Fresco</span><span>Esausto</span></div>
+      </div>
+
+      <div class="wl-slider-row">
+        <div class="lbl"><span>Umore / energia percepita</span><span class="v" id="wl-umore-v">${WL_UMORE_LABELS[WL_DRAFT.umore-1]}</span></div>
+        <input type="range" min="1" max="5" step="1" value="${WL_DRAFT.umore}" oninput="WL_DRAFT.umore=+this.value;document.getElementById('wl-umore-v').textContent=WL_UMORE_LABELS[this.value-1]">
+        <div class="wl-scale-labels"><span>Giù</span><span>Al top</span></div>
+      </div>
+
+      <div class="wl-body-head">
+        <b style="font-size:.86rem">Mappa corporea <button class="link-btn" style="font-size:.78rem;margin-left:6px" onclick="wlGenderPicker(true)">Cambia corpo</button></b>
+        <div class="wl-toggle">
+          <button class="${WL_DRAFT.view==='front'?'on':''}" onclick="wlSetView('front')">Fronte</button>
+          <button class="${WL_DRAFT.view==='back'?'on':''}" onclick="wlSetView('back')">Retro</button>
+        </div>
+      </div>
+      <div class="wl-map" onclick="wlMapClick(event)"><img src="${wlBodyImg()}" alt="Sagoma corpo">${wlMapMarkers()}</div>
+      <div class="wl-hint">Tocca sulla sagoma per segnalare una zona indolenzita/affaticata. Tocca un pallino già segnato per modificarlo o rimuoverlo.</div>
+      ${wlPendingHtml()}
+      ${wlZoneListHtml()}
+
+      <button class="btn btn-accent" style="width:100%;margin-top:1.2rem" onclick="wlSaveCheckin()"><i class="fa-solid fa-floppy-disk"></i> Salva check-in</button>
+
+      <div class="wl-hist" style="margin-top:1.2rem"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi check-in</b>${histHtml}</div>
+    </div>`);
+}
+function wlSetView(v){ WL_DRAFT.view=v; WL_DRAFT.pending=null; wlForm(); }
+function wlMapClick(e){
+  if(e.target.closest('.wl-marker')) return;
+  const rect=e.currentTarget.getBoundingClientRect();
+  const x=Math.min(100,Math.max(0,(e.clientX-rect.left)/rect.width*100));
+  const y=Math.min(100,Math.max(0,(e.clientY-rect.top)/rect.height*100));
+  WL_DRAFT.pending={mode:'add',x:+x.toFixed(1),y:+y.toFixed(1)};
+  wlForm();
+}
+function wlMarkerTap(idx){ WL_DRAFT.pending={mode:'edit',idx}; wlForm(); }
+function wlPendingSetIntensity(n){
+  if(!WL_DRAFT.pending) return;
+  if(WL_DRAFT.pending.mode==='add') WL_DRAFT.zones.push({x:WL_DRAFT.pending.x,y:WL_DRAFT.pending.y,intensita:n,view:WL_DRAFT.view});
+  else WL_DRAFT.zones[WL_DRAFT.pending.idx].intensita=n;
+  WL_DRAFT.pending=null; wlForm();
+}
+function wlPendingRemove(){
+  if(WL_DRAFT.pending && WL_DRAFT.pending.mode==='edit') WL_DRAFT.zones.splice(WL_DRAFT.pending.idx,1);
+  WL_DRAFT.pending=null; wlForm();
+}
+function wlPendingCancel(){ WL_DRAFT.pending=null; wlForm(); }
+function wlRemoveZone(idx){ WL_DRAFT.zones.splice(idx,1); wlForm(); }
+function wlSummary(e){
+  const sonno=(+e.sonno).toFixed(1).replace('.0','');
+  const n=e.zone?e.zone.length:0;
+  return `${sonno}h sonno, affaticamento ${e.affaticamento}/5, ${n} zona${n===1?'':'e'} segnalat${n===1?'a':'e'}`;
+}
+function wlSaveCheckin(){
+  const entry={date:new Date().toISOString(),sonno:+WL_DRAFT.sonno,affaticamento:+WL_DRAFT.fatica,umore:+WL_DRAFT.umore,
+    zone:WL_DRAFT.zones.map(z=>({x:z.x,y:z.y,intensita:z.intensita,view:z.view}))};
+  WL.checkins.push(entry); wlSave();
+  toast('Check-in salvato');
+  closeModal();
 }
