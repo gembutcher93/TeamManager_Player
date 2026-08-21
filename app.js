@@ -134,14 +134,12 @@ function renderProfilo(){
                 <div class="chip ${f.d}">Forma <span class="v">${f.t}</span></div>
                 <div class="chip">Presenza <span class="v num">${P().attPct!=null?P().attPct+'%':'—'}</span></div>
             </div>
-            <button class="pl-cardbtn" onclick="openMyCard()"><i class="fa-solid fa-id-card"></i> La mia card</button>
+            <div style="display:flex;gap:8px;width:100%">
+                <button class="pl-cardbtn" style="flex:1" onclick="openMyCard()"><i class="fa-solid fa-id-card"></i> La mia card</button>
+                ${P().lineup?`<button class="pl-cardbtn" style="flex:1" onclick="openLineup()"><i class="fa-solid fa-people-group"></i> Formazione</button>`:''}
+            </div>
         </div>
-        ${next}${goal}
-        <div class="card"><h3><i class="fa-solid fa-arrows-rotate"></i> Aggiornamenti</h3>
-            <p style="color:var(--muted);margin:.2rem 0 1rem;font-size:.9rem">Quando esce una versione nuova compare un avviso. Qui puoi controllare o applicare un aggiornamento in attesa quando vuoi. I tuoi dati non vengono toccati.</p>
-            <div class="pwa-state" id="pwa-settings-state"></div>
-            <button class="btn btn-ghost" onclick="pwaCheckNow()"><i class="fa-solid fa-magnifying-glass"></i> Cerca aggiornamenti</button></div>`;
-    pwaMarkSettings(!!(swReg&&swReg.waiting));
+        ${next}${goal}`;
 }
 
 function renderStats(){
@@ -255,66 +253,32 @@ function toast(msg,type='success'){
     s.appendChild(el);setTimeout(()=>{el.style.opacity='0';setTimeout(()=>el.remove(),300);},3000);
 }
 
-/* ===== AUTO-UPDATE PWA — banner + card in Profilo. I dati non vengono toccati. ===== */
-const APP_VERSION='v6';
-let swReg=null, pwaRefreshing=false;
-function pwaCSS(){
-  if(document.getElementById('pwa-css')) return;
-  const st=document.createElement('style'); st.id='pwa-css';
-  st.textContent=`
-  #pwa-banner{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 74px);z-index:9999;display:flex;align-items:center;gap:14px;padding:12px 16px;border-radius:14px;max-width:calc(100% - 24px);background:var(--surface-2,#141a17);color:var(--text,#fff);border:1px solid var(--brand,#22C55E);box-shadow:0 8px 30px rgba(0,0,0,.45);animation:pwaUp .25s ease;}
-  @keyframes pwaUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
-  #pwa-banner .pwa-msg{font-weight:600;font-size:.9rem;display:flex;align-items:center;gap:8px;} #pwa-banner .pwa-msg i{color:var(--brand,#22C55E);}
-  #pwa-banner .pwa-acts{display:flex;gap:8px;margin-left:auto;}
-  #pwa-banner button{border:none;border-radius:9px;padding:8px 12px;font-weight:700;cursor:pointer;font-size:.82rem;}
-  #pwa-banner .pwa-later{background:transparent;color:var(--muted,#9aa);border:1px solid rgba(255,255,255,.18);}
-  #pwa-banner .pwa-now{background:var(--brand,#22C55E);color:#04140a;}
-  @media(min-width:900px){#pwa-banner{bottom:24px;}}
-  .pwa-state{margin-bottom:1rem;font-size:.9rem;} .pwa-ok{color:var(--muted);}
-  .pwa-badge-new{display:inline-block;background:var(--brand,#22C55E);color:#04140a;font-weight:800;border-radius:20px;padding:2px 10px;font-size:.78rem;margin-right:8px;}`;
-  document.head.appendChild(st);
-}
-function pwaShowBanner(){
-  pwaCSS();
-  if(document.getElementById('pwa-banner')) return;
-  const b=document.createElement('div'); b.id='pwa-banner';
-  b.innerHTML='<span class="pwa-msg"><i class="fa-solid fa-arrows-rotate"></i> Nuova versione disponibile</span>'+
-    '<div class="pwa-acts"><button class="pwa-later" onclick="pwaDismissBanner()">Più tardi</button><button class="pwa-now" onclick="pwaApplyUpdate()">Aggiorna ora</button></div>';
-  document.body.appendChild(b);
-  pwaMarkSettings(true);
-}
-function pwaDismissBanner(){ const b=document.getElementById('pwa-banner'); if(b)b.remove(); }
-function pwaApplyUpdate(){ const w=swReg&&swReg.waiting; if(w){ w.postMessage({type:'SKIP_WAITING'}); } else { location.reload(); } }
-function pwaMarkSettings(available){
-  const el=document.getElementById('pwa-settings-state'); if(!el) return;
-  el.innerHTML = available
-    ? '<span class="pwa-badge-new">Aggiornamento pronto</span><button class="btn btn-accent" onclick="pwaApplyUpdate()"><i class="fa-solid fa-arrows-rotate"></i> Aggiorna adesso</button>'
-    : '<span class="pwa-ok">Sei alla versione più recente ('+APP_VERSION+').</span>';
-}
-function pwaCheckNow(){
-  if(!swReg){ toast('Aggiornamenti non disponibili qui'); return; }
-  toast('Controllo aggiornamenti…');
-  swReg.update().then(()=>setTimeout(()=>{
-    if(swReg.waiting){ pwaShowBanner(); pwaMarkSettings(true); toast('Aggiornamento trovato'); }
-    else { pwaMarkSettings(false); toast('Sei già aggiornato'); }
-  },900)).catch(()=>toast('Controllo non riuscito','danger'));
-}
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(pwaRefreshing) return; pwaRefreshing=true; location.reload(); });
-  window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{
-      swReg=reg;
-      if(reg.waiting) pwaShowBanner();
-      reg.addEventListener('updatefound',()=>{ const nw=reg.installing; if(!nw) return;
-        nw.addEventListener('statechange',()=>{ if(nw.state==='installed' && navigator.serviceWorker.controller) pwaShowBanner(); }); });
-      pwaMarkSettings(!!reg.waiting);
-    }).catch(()=>{});
-  });
-}
-
 renderAll();
 if(S.onboard) showOnboarding();
 idbGet('self').then(d=>{ if(d){ PL_PHOTO=d; renderProfilo(); } });
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      reg.addEventListener('updatefound',()=>{
+        const nw=reg.installing;
+        if(!nw)return;
+        nw.addEventListener('statechange',()=>{
+          if(nw.state==='installed' && navigator.serviceWorker.controller){
+            showUpdateBanner();
+          }
+        });
+      });
+    }).catch(()=>{});
+  });
+}
+function showUpdateBanner(){
+  if(document.getElementById('upd-banner'))return;
+  const b=document.createElement('div');
+  b.id='upd-banner';
+  b.style.cssText='position:fixed;left:12px;right:12px;bottom:calc(var(--navh) + 12px + env(safe-area-inset-bottom));z-index:60;background:var(--brand);color:#04210f;padding:12px 14px;border-radius:14px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow);font-weight:700;';
+  b.innerHTML='<i class="fa-solid fa-rotate"></i> Nuovo aggiornamento disponibile <button style="margin-left:auto;background:#04210f;color:#fff;border:none;padding:8px 12px;border-radius:10px;font-weight:800;cursor:pointer" onclick="location.reload()">Aggiorna</button>';
+  document.body.appendChild(b);
+}
 
 /* ---------- creazione / modifica profilo a mano ---------- */
 function scaffold(sport){ sport=(sport&&SPORTS_P[sport])?sport:'pallavolo';
@@ -591,26 +555,89 @@ function confirmPhoto(){
   toast('Foto aggiornata');
 }
 function removePhoto(){ PL_PHOTO=null; idbDel('self'); renderProfilo(); if(document.querySelector('.fc')) openMyCard(); toast('Foto rimossa'); }
+/* ---------- Card a tier (layout ufficiale, stesso renderer del coach) ---------- */
+const CARD_LAYOUTS={
+  goat:{photo:{show:1,x:50,y:23.5,w:86,h:47},logo:{show:1,x:78,y:20.5,w:22.5},overall:{show:1,x:18.5,y:20,size:11,color:'#fff1b3',align:'center'},role:{show:1,x:18.5,y:29,size:4.6,color:'#ffcc02',align:'center'},number:{show:1,x:77.5,y:28.5,size:6.2,color:'#ffcc02',align:'center'},name:{show:1,x:50,y:56.5,size:6.4,color:'#fff7bd',align:'center'},attrs:{show:1,x:50,y:67.5,size:6.4,color:'#fff2d0'},tierName:{show:1,x:50,y:85,size:5.2,color:'#ff6a00',align:'center'}},
+  mythic:{photo:{show:1,x:50,y:31,w:66,h:42.5},logo:{show:1,x:79.5,y:19,w:22},overall:{show:1,x:19,y:18,size:12,color:'#fcdbff',align:'center'},role:{show:1,x:19,y:24.5,size:4.6,color:'#ffffff',align:'center'},number:{show:1,x:79,y:26.5,size:6.8,color:'#ffedfe',align:'center'},name:{show:1,x:50,y:57,size:7.2,color:'#ffd7ff',align:'center'},attrs:{show:1,x:50,y:72,size:6.6,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#efcaff',align:'center'}},
+  diamond:{photo:{show:1,x:50,y:30,w:66,h:44},logo:{show:1,x:81.5,y:22,w:22.5},overall:{show:1,x:17,y:21,size:12,color:'#12fffe',align:'center'},role:{show:1,x:17.5,y:29.5,size:5.4,color:'#ffffff',align:'center'},number:{show:1,x:81.5,y:30,size:6.2,color:'#ffffff',align:'center'},name:{show:1,x:50,y:57.5,size:7.4,color:'#7bf7ff',align:'center'},attrs:{show:1,x:50,y:73,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#93e3fd',align:'center'}},
+  gold:{photo:{show:1,x:50,y:26.5,w:66,h:49},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:11,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:6.2,color:'#fcfcff',align:'center'},number:{show:1,x:81.5,y:27.5,size:6.8,color:'#ffffff',align:'center'},name:{show:1,x:50,y:59.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:74.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:91,size:4.6,color:'#c49e00',align:'center'}},
+  silver:{photo:{show:1,x:50,y:29.5,w:72,h:44},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:13.6,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:5.2,color:'#ffffff',align:'center'},number:{show:1,x:82,y:28,size:6.4,color:'#ffffff',align:'center'},name:{show:1,x:50,y:58.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:73.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:90,size:4,color:'#d6d6d6',align:'center'}}
+};
+const TIER_LABEL={goat:'GOAT',mythic:'MYTHIC',diamond:'DIAMOND',gold:'GOLD',silver:'SILVER'};
+const TIER_FRAME_CANDIDATES={goat:['goat.png','Goat_.png','Goat.png','goat_.png'],mythic:['mythic.png','Mythic_.png','Mythic.png','mythic_.png'],diamond:['diamond.png','Diamond_.png','Diamond.png','diamond_.png'],gold:['gold.png','Gold_.png','Gold.png','gold_.png'],silver:['silver.png','Silver_.png','Silver.png','silver_.png']};
+function ownLineupEntry(){
+  const lu=P().lineup, p=P().p; if(!lu||!Array.isArray(lu.slots))return null;
+  return lu.slots.find(s=>p.number!=null && s.number===p.number) || lu.slots.find(s=>s.playerName===p.name) || null;
+}
+function myTier(){
+  const e=ownLineupEntry(); if(e&&e.tier&&CARD_LAYOUTS[e.tier])return e.tier;
+  const o=overallOf(); if(o==null)return 'silver';
+  if(o>=90)return 'goat'; if(o>=80)return 'mythic'; if(o>=70)return 'diamond'; if(o>=55)return 'gold'; return 'silver';
+}
+function myOverallForCard(){ const e=ownLineupEntry(); if(e&&e.overall!=null)return e.overall; return overallOf(); }
+function tierFrameImgTag(tier,cls){
+  const list=TIER_FRAME_CANDIDATES[tier]||TIER_FRAME_CANDIDATES.silver;
+  return `<img class="${cls}" src="cards/${list[0]}" onerror="this.onerror=null;this.src='cards/${list[1]}'">`;
+}
+function renderTierCardHTML(tier,photo,name,number,role,overall,team){
+  const L=CARD_LAYOUTS[tier]||CARD_LAYOUTS.silver;
+  const textEl=(k,val,extra='')=>{ const c=L[k]; if(!c||!c.show)return ''; return `<div style="position:absolute;left:${c.x}%;top:${c.y}%;transform:translate(${c.align==='center'?'-50%':'0'},-50%);font-weight:800;font-size:${c.size}cqw;color:${c.color};white-space:nowrap;text-align:${c.align||'left'}">${val}</div>${extra}`; };
+  const photoEl = L.photo && L.photo.show ? `<div style="position:absolute;left:${L.photo.x}%;top:${L.photo.y}%;width:${L.photo.w}%;height:${L.photo.h}%;transform:translate(-50%,-50%);overflow:hidden;border-radius:8px">${photo?`<img src="${photo}" style="width:100%;height:100%;object-fit:cover">`:`<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08);font-weight:800;font-size:22cqw;color:rgba(255,255,255,.5)">${initialsOf(name)}</div>`}</div>`:'';
+  const attrsEl = L.attrs && L.attrs.show ? `<div style="position:absolute;left:${L.attrs.x}%;top:${L.attrs.y}%;transform:translate(-50%,-50%);font-size:${L.attrs.size}cqw;color:${L.attrs.color};font-weight:700;white-space:nowrap">${roleAbbr(role)}</div>`:'';
+  return `<div class="tiercard" style="position:relative;width:100%;aspect-ratio:5/7;container-type:inline-size;border-radius:14px;overflow:hidden">
+    ${tierFrameImgTag(tier,'tc-frame')}
+    <style>.tc-frame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:1}</style>
+    ${photoEl}
+    ${textEl('overall',overall!=null?overall:'—')}
+    ${textEl('number','#'+(number||''))}
+    ${attrsEl}
+    ${textEl('name',name||'')}
+    ${textEl('tierName',TIER_LABEL[tier]||'')}
+  </div>`;
+}
 function openMyCard(){
   plMediaCSS();
-  const p=P().p, ovr=overallOf(), sport=sportOf();
-  const pal={pallavolo:['#F6D365','#E2A13C'],calcio:['#7BE0A3','#34A853'],basket:['#FDBA74','#F97316']}[sport]||['#F6D365','#E2A13C'];
-  const ic={pallavolo:'🏐',calcio:'⚽',basket:'🏀'}[sport]||'🏅';
+  const p=P().p, sport=sportOf(), tier=myTier(), ovr=myOverallForCard();
   const cells=(P().season.cells||[]).slice(0,4);
-  const photo=PL_PHOTO?`<img src="${PL_PHOTO}">`:`<div class="ini">${initialsOf(p.name)}</div>`;
   const stats=cells.length?cells.map(c=>`<div class="st"><span>${c[0]}</span> ${c[1]}${c[2]||''}</div>`).join('')
      :`<div class="st"><span>Media voto</span> ${P().season.avgVoto?P().season.avgVoto.toFixed(1):'—'}</div><div class="st"><span>Presenza</span> ${P().attPct!=null?P().attPct+'%':'—'}</div>`;
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-id-card" style="color:var(--brand)"></i> La mia card</h3>
       <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body fc-wrap">
-      <div class="fc" style="--fc-a:${pal[0]};--fc-b:${pal[1]}">
-        <div class="top"><div class="ovr"><b>${ovr||'—'}</b><span>${roleAbbr(p.role)}</span></div><div class="sporticon">${ic}</div></div>
-        <div class="photo">${photo}</div>
-        <div class="nm">${p.name||'Il tuo nome'} <span style="opacity:.55">#${p.number||''}</span></div>
-        <div class="tm">${P().team||''}</div>
-        <div class="stats">${stats}</div>
-      </div>
+      ${renderTierCardHTML(tier,PL_PHOTO,p.name,p.number,p.role,ovr,P().team)}
+      <div class="stats" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">${stats}</div>
       <button class="btn btn-accent" style="width:100%;margin-top:16px" onclick="pickPhoto()"><i class="fa-solid fa-camera"></i> ${PL_PHOTO?'Cambia foto':'Aggiungi la tua foto'}</button>
       ${PL_PHOTO?'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="removePhoto()"><i class="fa-solid fa-trash"></i> Rimuovi foto</button>':''}
+    </div>`);
+}
+
+/* ---------- Formazione consigliata (ricevuta dal mister) ---------- */
+function openLineup(){
+  const lu=P().lineup;
+  if(!lu||!Array.isArray(lu.slots)||!lu.slots.length){
+    openModal(`<div class="modal-head"><h3><i class="fa-solid fa-people-group" style="color:var(--brand)"></i> Formazione consigliata</h3>
+      <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="modal-body"><p style="opacity:.7">Il mister non ha ancora condiviso una formazione consigliata.</p></div>`);
+    return;
+  }
+  const p=P().p, myNum=p.number;
+  const tokens=lu.slots.map(s=>{
+    const mine = (myNum!=null && s.number===myNum) || s.playerName===p.name;
+    const ovrTxt = lu.showOverall ? (s.overall!=null ? s.overall : 'NC') : '';
+    return `<div style="position:absolute;left:${(s.x*100).toFixed(1)}%;top:${(s.y*100).toFixed(1)}%;transform:translate(-50%,-50%);text-align:center">
+      <div style="width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;
+        background:${mine?'var(--brand)':'rgba(255,255,255,.12)'};color:${mine?'#04210f':'#fff'};border:2px solid ${mine?'var(--brand)':'rgba(255,255,255,.35)'};">${s.number!=null?s.number:''}</div>
+      <div style="font-size:10px;margin-top:2px;color:${mine?'var(--brand)':'rgba(255,255,255,.75)'};font-weight:${mine?'800':'600'};white-space:nowrap">${s.playerName||s.ruolo_o_zona||''}</div>
+      ${lu.showOverall?`<div style="font-size:9px;color:rgba(255,255,255,.55)">${ovrTxt}</div>`:''}
+    </div>`;
+  }).join('');
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-people-group" style="color:var(--brand)"></i> Formazione consigliata</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="opacity:.65;font-size:13px;margin-bottom:10px">Scelti in base alla media voto: per ogni ruolo gioca chi rende di più.</p>
+      <div style="position:relative;width:100%;aspect-ratio:2/3;border-radius:12px;overflow:hidden">
+        ${courtSVG(lu.sport||sportOf())}
+        ${tokens}
+      </div>
     </div>`);
 }
