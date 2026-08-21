@@ -473,6 +473,7 @@ function plMediaCSS(){
   if(document.getElementById('pl-media-css'))return;
   const st=document.createElement('style'); st.id='pl-media-css';
   st.textContent=`
+  .rp-checker{background:conic-gradient(#3a3f47 25%,#262a30 0 50%,#3a3f47 0 75%,#262a30 0) 0 0/22px 22px;}
   .pl-avatar{width:104px;height:104px;border-radius:50%;margin:2px auto 8px;position:relative;cursor:pointer;
     border:3px solid var(--brand);background:var(--surface-2);overflow:visible;display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px -12px rgba(0,0,0,.65);}
   .pl-avatar>.im{width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;}
@@ -505,7 +506,7 @@ function pickPhoto(){
     const rd=new FileReader(); rd.onload=()=>{ const im=new Image(); im.onload=()=>{
       const MAX=1000, r=Math.min(MAX/im.width,MAX/im.height,1), w=Math.round(im.width*r), h=Math.round(im.height*r);
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(im,0,0,w,h);
-      repositionPhoto(cv.toDataURL('image/jpeg',0.85));
+      repositionPhoto(cv.toDataURL('image/png'));
     }; im.src=rd.result; };
     rd.readAsDataURL(f);
   };
@@ -517,7 +518,7 @@ function repositionPhoto(srcDataURL){
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-crop-simple" style="color:var(--brand)"></i> Posiziona la foto</h3>
       <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body" style="text-align:center">
-      <div id="rp-frame" style="width:${Fw}px;height:${Fh}px;margin:0 auto;border-radius:16px;overflow:hidden;position:relative;background:#000;touch-action:none;border:2px solid var(--brand)">
+      <div id="rp-frame" class="rp-checker" style="width:${Fw}px;height:${Fh}px;margin:0 auto;border-radius:16px;overflow:hidden;position:relative;touch-action:none;border:2px solid var(--brand)">
         <img id="rp-img" src="${srcDataURL}" style="position:absolute;left:0;top:0;transform-origin:0 0;user-select:none;pointer-events:none;max-width:none">
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:14px">
@@ -525,7 +526,12 @@ function repositionPhoto(srcDataURL){
         <input id="rp-zoom" type="range" min="100" max="300" value="100" style="flex:1">
         <i class="fa-solid fa-magnifying-glass-plus" style="color:var(--muted)"></i>
       </div>
-      <p style="color:var(--muted-2);font-size:.78rem;margin-top:6px">Trascina per spostare, usa lo slider per lo zoom.</p>
+      <div style="margin-top:12px">
+        <button class="btn btn-ghost" id="rp-bgbtn" style="width:100%" onclick="rpAiRemove()"><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--brand)"></i> Rimuovi sfondo</button>
+        <div id="rp-bgstatus" style="display:none;font-size:.78rem;color:var(--muted);margin-top:8px"></div>
+        <button class="btn btn-ghost btn-sm" id="rp-bgreset" style="display:none;margin-top:6px" onclick="rpReset()"><i class="fa-solid fa-rotate-left"></i> Ripristina originale</button>
+      </div>
+      <p style="color:var(--muted-2);font-size:.78rem;margin-top:6px">Trascina per spostare, usa lo slider per lo zoom. Se la foto ha già lo sfondo trasparente, lasciala così.</p>
       <button class="btn btn-accent" style="width:100%;margin-top:12px" onclick="confirmPhoto()"><i class="fa-solid fa-check"></i> Conferma</button>
     </div>`);
   const frame=document.getElementById('rp-frame'), img=document.getElementById('rp-img');
@@ -533,23 +539,61 @@ function repositionPhoto(srcDataURL){
   const dispW=()=>st.imgW*st.cover*st.zoom, dispH=()=>st.imgH*st.cover*st.zoom;
   const clamp=()=>{ st.tx=Math.min(0,Math.max(Fw-dispW(),st.tx)); st.ty=Math.min(0,Math.max(Fh-dispH(),st.ty)); };
   const apply=()=>{ img.style.transform=`translate(${st.tx}px,${st.ty}px) scale(${st.cover*st.zoom})`; };
-  img.onload=()=>{ st.imgW=img.naturalWidth; st.imgH=img.naturalHeight; st.cover=Math.max(Fw/st.imgW,Fh/st.imgH);
+  const init=()=>{ st.imgW=img.naturalWidth; st.imgH=img.naturalHeight; st.cover=Math.max(Fw/st.imgW,Fh/st.imgH);
     st.zoom=1; st.tx=(Fw-dispW())/2; st.ty=(Fh-dispH())/2; clamp(); apply(); };
-  if(img.complete && img.naturalWidth) img.onload();
+  let firstInit=true;
+  img.onload=()=>{ if(firstInit){ init(); firstInit=false; } else { clamp(); apply(); } };
+  if(img.complete && img.naturalWidth){ init(); firstInit=false; }
   document.getElementById('rp-zoom').oninput=e=>{ const z=e.target.value/100; const cx=Fw/2-st.tx, cy=Fh/2-st.ty, ratio=z/st.zoom;
     st.zoom=z; st.tx=Fw/2-cx*ratio; st.ty=Fh/2-cy*ratio; clamp(); apply(); };
   let px,py,drag=false;
   frame.addEventListener('pointerdown',e=>{drag=true;px=e.clientX;py=e.clientY;try{frame.setPointerCapture(e.pointerId);}catch(_){}});
   frame.addEventListener('pointermove',e=>{ if(!drag)return; st.tx+=e.clientX-px; st.ty+=e.clientY-py; px=e.clientX; py=e.clientY; clamp(); apply(); });
   frame.addEventListener('pointerup',()=>drag=false); frame.addEventListener('pointercancel',()=>drag=false);
-  window.__rp={st,Fw,Fh,img};
+  window.__rp={st,Fw,Fh,img,original:srcDataURL};
 }
+/* rimuovi-sfondo: AI (segmentazione soggetto, @imgly in-browser) con fallback chroma-key sugli angoli */
+let _imglyRemoveP=null;
+async function loadImglyP(){ if(_imglyRemoveP) return _imglyRemoveP; const m=await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.8/+esm'); _imglyRemoveP=m.removeBackground||m.default; return _imglyRemoveP; }
+function blobToDataURLP(b){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(b); }); }
+async function aiRemoveBgP(src,onProgress){
+  const rem=await loadImglyP();
+  const blob=await rem(src,{ output:{format:'image/png'}, progress:(k,c,t)=>{ try{ if(onProgress&&t) onProgress(c/t); }catch(_){} } });
+  return await blobToDataURLP(blob);
+}
+function chromaApplyP(p,w,h,tol){
+  const corners=[[0,0],[w-1,0],[0,h-1],[w-1,h-1]];
+  let br=0,bg=0,bb=0; corners.forEach(([x,y])=>{const i=(y*w+x)*4; br+=p[i];bg+=p[i+1];bb+=p[i+2];}); br/=4;bg/=4;bb/=4;
+  const T=tol*tol;
+  for(let i=0;i<p.length;i+=4){ const dr=p[i]-br,dg=p[i+1]-bg,db=p[i+2]-bb, dist=dr*dr+dg*dg+db*db;
+    if(dist<T) p[i+3]=0; else if(dist<T*2.2) p[i+3]=Math.round(p[i+3]*Math.min(1,(dist-T)/(T*1.2))); }
+  return p;
+}
+function chromaKeyDataURLP(srcDataURL,tol){ return new Promise(res=>{ const im=new Image(); im.onload=()=>{
+  const c=document.createElement('canvas'); c.width=im.naturalWidth||im.width; c.height=im.naturalHeight||im.height;
+  const ctx=c.getContext('2d'); ctx.drawImage(im,0,0); const d=ctx.getImageData(0,0,c.width,c.height);
+  chromaApplyP(d.data,c.width,c.height,tol); ctx.putImageData(d,0,0); res(c.toDataURL('image/png')); }; im.src=srcDataURL; }); }
+async function rpAiRemove(){
+  const R=window.__rp; if(!R) return;
+  const btn=document.getElementById('rp-bgbtn'), status=document.getElementById('rp-bgstatus'), reset=document.getElementById('rp-bgreset');
+  if(btn) btn.disabled=true; if(status){ status.style.display='block'; status.textContent='Preparo il ritaglio…'; }
+  try{
+    const out=await aiRemoveBgP(R.original, p=>{ if(status) status.textContent = p<1?`Elaboro… ${Math.round(p*100)}%`:'Quasi fatto…'; });
+    R.img.src=out; if(status) status.textContent='Sfondo rimosso ✓'; if(reset) reset.style.display='block';
+  }catch(e){
+    if(status) status.textContent='AI non disponibile, uso il metodo veloce…';
+    try{ const out=await chromaKeyDataURLP(R.original,72); R.img.src=out; if(status) status.textContent='Sfondo rimosso (metodo veloce) ✓'; if(reset) reset.style.display='block'; }
+    catch(_){ if(status) status.textContent='Non riesco a rimuovere lo sfondo qui. Prova con connessione attiva.'; }
+  }
+  if(btn) btn.disabled=false;
+}
+function rpReset(){ const R=window.__rp; if(!R)return; R.img.src=R.original; const s=document.getElementById('rp-bgstatus'); if(s) s.style.display='none'; const b=document.getElementById('rp-bgreset'); if(b) b.style.display='none'; }
 function confirmPhoto(){
   const R=window.__rp; if(!R){closeModal();return;}
   const {st,Fw,Fh,img}=R, Tw=480, Th=640, s=st.cover*st.zoom;
   const c=document.createElement('canvas'); c.width=Tw; c.height=Th; const ctx=c.getContext('2d');
   ctx.drawImage(img, (-st.tx)/s, (-st.ty)/s, Fw/s, Fh/s, 0,0,Tw,Th);
-  const data=c.toDataURL('image/jpeg',0.78);
+  const data=c.toDataURL('image/png');
   PL_PHOTO=data; idbSet('self',data); closeModal(); renderProfilo();
   if(S && S.pkg) openMyCard();
   toast('Foto aggiornata');
