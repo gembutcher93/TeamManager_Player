@@ -1,9 +1,9 @@
 /* =========================================================
-   VolleyTeam — Player App (companion offline)
+   AiRIM — Player App (companion offline)
    Importa un "pacchetto profilo" generato dall'app del coach.
    ========================================================= */
 'use strict';
-const APP_VERSION='1.2.0';
+const APP_VERSION='1.11.0';
 const LS='vtm_player_db';
 const MONTHS=['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
 const today=()=>new Date(new Date().toDateString());
@@ -49,7 +49,12 @@ const P=()=>S.pkg;
 
 /* ---------- Mental Gym: stato locale (chiave dedicata, nessuna collisione con LS) ---------- */
 const MG_LS='vtm_mg_v1';
-function mgLoad(){ try{const r=localStorage.getItem(MG_LS); if(r)return JSON.parse(r);}catch(e){} return {calib:null,reaction:[],stroop:[],peripheral:[]}; }
+function mgLoad(){
+  let r; try{const s=localStorage.getItem(MG_LS); if(s) r=JSON.parse(s);}catch(e){}
+  if(!r) r={calib:null,reaction:[],stroop:[],peripheral:[]};
+  r.gonogo=r.gonogo||[]; r.colormatch=r.colormatch||[];
+  return r;
+}
 let MG=mgLoad();
 function mgSave(){ localStorage.setItem(MG_LS,JSON.stringify(MG)); }
 
@@ -109,7 +114,7 @@ function form(){const v=(P().voti||[]).map(x=>x.v);if(v.length<2)return{d:'flat'
    ========================================================= */
 function renderAll(){
     document.getElementById('bar-team').textContent=P().team&&P().team!=='TEAM'?P().team:'Player';
-    renderProfilo();renderStats();renderCalendar();renderTraining();renderProgress();
+    renderProfilo();renderFormazione();renderStats();renderCalendar();renderTraining();renderProgress();
 }
 const SPORTS_P={
   pallavolo:{roles:['Palleggiatore','Schiacciatore','Centrale','Opposto','Libero']},
@@ -147,12 +152,11 @@ function renderProfilo(){
                 <div class="chip ${f.d}">Forma <span class="v">${f.t}</span></div>
                 <div class="chip">Presenza <span class="v num">${P().attPct!=null?P().attPct+'%':'—'}</span></div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%">
-                <button class="pl-cardbtn" onclick="openMyCard()"><i class="fa-solid fa-id-card"></i> La mia card</button>
-                ${P().lineup?`<button class="pl-cardbtn" onclick="openLineup()"><i class="fa-solid fa-people-group"></i> Formazione</button>`:''}
-                <button class="pl-cardbtn" onclick="mgOpen()"><i class="fa-solid fa-brain"></i> Mental Gym</button>
-                <button class="pl-cardbtn" onclick="wlOpen()"><i class="fa-solid fa-heart-pulse"></i> Check-in benessere</button>
+            <div style="display:flex;gap:8px;width:100%">
+                <button class="pl-cardbtn" style="flex:1" onclick="openMyCard()"><i class="fa-solid fa-id-card"></i> La mia card</button>
+                <button class="pl-cardbtn" style="flex:1" onclick="wlOpen()"><i class="fa-solid fa-heart-pulse"></i> Check-in benessere</button>
             </div>
+            <button class="pl-cardbtn-mg" onclick="mgOpen()"><i class="fa-solid fa-brain"></i> Mental Gym</button>
         </div>
         ${next}${goal}`;
 }
@@ -253,6 +257,10 @@ function renderProgress(){
 
 /* ---------- nav / modal / toast ---------- */
 function go(tab){
+    if(tab==='formazione' && !P().lineup){
+        toast('In attesa che il mister invii la formazione consigliata dal suo AiRIM.');
+        return;
+    }
     document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
     document.querySelectorAll('.bottomnav button').forEach(b=>b.classList.remove('active'));
     document.getElementById(tab).classList.add('active');
@@ -381,6 +389,7 @@ function plCSS(){
   #pl-onb h2{font-family:'Outfit',sans-serif;font-weight:800;font-size:1.85rem;line-height:1.12;}
   #pl-onb p{color:var(--muted);font-size:1.02rem;line-height:1.5;max-width:460px;}
   #pl-onb .brandsub{font-size:.72rem;letter-spacing:3px;text-transform:uppercase;color:var(--brand);font-weight:700;}
+  #pl-onb .acr-tag{font-size:.66rem;letter-spacing:1px;color:var(--muted);margin-top:-6px;}
   #pl-onb .sports{display:flex;flex-direction:column;gap:12px;width:100%;max-width:420px;margin-top:6px;}
   #pl-onb .sp{display:flex;align-items:center;gap:16px;padding:16px 18px;border-radius:16px;border:1px solid var(--line);background:var(--surface-2);cursor:pointer;transition:.18s;}
   #pl-onb .sp .e{font-size:34px;}
@@ -403,10 +412,12 @@ function plCSS(){
 function plPanels(){
   const logo=`<img class="logo" src="icons/logo-badge.png" alt="">`;
   return [
-    {html:`${logo}<div class="brandsub">Player Manager</div><h2>La tua carriera,<br>in un'app.</h2><p>Statistiche, calendario, allenamenti e progressi — sempre in tasca.</p>`},
+    {html:`${logo}<div class="brandsub">AiRIM</div><div class="acr-tag">Athletic · Impulse · Rank · Identity · Merit</div><h2>La tua carriera,<br>in un'app.</h2><p>Statistiche, calendario, allenamenti e progressi — sempre in tasca.</p>`},
     {html:`<div class="ic">📊</div><h2>Le tue statistiche</h2><p>Voti, medie e andamento gara per gara. Vedi nero su bianco come stai crescendo.</p>`},
     {html:`<div class="ic">🔄</div><h2>Sincronizzata col mister</h2><p>Ricevi il pacchetto dal tuo allenatore e la tua app si riempie di dati reali.</p>`},
     {html:`<div class="ic">🏆</div><h2>Progressi e obiettivi</h2><p>Autovaluta gli allenamenti e sblocca i distintivi. La motivazione che cresce.</p>`},
+    {html:`<div class="ic">🧠</div><h2>Mental Gym</h2><p>Allena riflessi e percezione con mini-giochi pensati per lo sport. Migliora e scala la classifica personale.</p>`},
+    {html:`<div class="ic">🩺</div><h2>Check-in benessere</h2><p>Segnala come ti senti: sonno, affaticamento e zone del corpo indolenzite, così tieni traccia del tuo stato nel tempo.</p>`},
     {sport:true, html:`<div class="ic">🎯</div><h2>Qual è il tuo sport?</h2><p>Così l'app imposta ruoli e statistiche giuste per te.</p>
       <div class="sports">
         <div class="sp" data-sp="pallavolo"><span class="e">🏐</span><div style="text-align:left"><b>Pallavolo</b><span>palleggiatore, schiacciatore…</span></div><i class="chk fa-solid fa-circle-check"></i></div>
@@ -496,6 +507,9 @@ function plMediaCSS(){
   .pl-avatar .ph{color:var(--muted);font-size:.72rem;font-weight:800;text-align:center;line-height:1.15;}
   .pl-avatar .cam{position:absolute;bottom:-2px;right:-2px;width:32px;height:32px;border-radius:50%;background:var(--brand);color:#04140A;display:flex;align-items:center;justify-content:center;border:3px solid #0b1424;font-size:.78rem;}
   .pl-cardbtn{width:100%;margin-top:12px;background:linear-gradient(90deg,var(--brand-deep),var(--brand));color:#04140A;border:0;border-radius:12px;padding:12px;font-weight:800;font-family:'Outfit',sans-serif;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;}
+  .pl-cardbtn-mg{width:100%;margin-top:10px;background:linear-gradient(135deg,#8B5CF6,#5B21B6);color:#fff;border:0;border-radius:16px;padding:22px 16px;font-weight:800;font-family:'Outfit',sans-serif;font-size:1.15rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 14px 30px -10px rgba(124,58,237,.5);transition:.15s;}
+  .pl-cardbtn-mg i{font-size:1.6rem;}
+  .pl-cardbtn-mg:active{transform:translateY(1px);}
   .fc-wrap{display:flex;flex-direction:column;align-items:center;}
   .fc{position:relative;width:300px;max-width:100%;border-radius:24px;overflow:hidden;background:linear-gradient(160deg,var(--fc-a),var(--fc-b));padding:18px 18px 20px;color:#0b1220;box-shadow:0 30px 70px -24px rgba(0,0,0,.75);}
   .fc::before{content:"";position:absolute;inset:0;background:linear-gradient(125deg,rgba(255,255,255,.4),transparent 38%,transparent 60%,rgba(255,255,255,.22));mix-blend-mode:overlay;pointer-events:none;}
@@ -627,11 +641,11 @@ const BASE_CARD_LAYOUT={
   tierName:{show:0,x:50,y:94,size:4,color:'#ffffff',align:'center'}
 };
 const DEPLOY_CARD_LAYOUTS={
-  goat:{photo:{show:1,x:50,y:23.5,w:86,h:47},logo:{show:1,x:78,y:20.5,w:22.5},overall:{show:1,x:18.5,y:20,size:11,color:'#fff1b3',align:'center'},role:{show:1,x:18.5,y:29,size:4.6,color:'#ffcc02',align:'center'},number:{show:1,x:77.5,y:28.5,size:6.2,color:'#ffcc02',align:'center'},name:{show:1,x:50,y:56.5,size:6.4,color:'#fff7bd',align:'center'},attrs:{show:1,x:50,y:67.5,size:6.4,color:'#fff2d0'},tierName:{show:1,x:50,y:85,size:5.2,color:'#ff6a00',align:'center'}},
-  mythic:{photo:{show:1,x:50,y:31,w:66,h:42.5},logo:{show:1,x:79.5,y:19,w:22},overall:{show:1,x:19,y:18,size:12,color:'#fcdbff',align:'center'},role:{show:1,x:19,y:24.5,size:4.6,color:'#ffffff',align:'center'},number:{show:1,x:79,y:26.5,size:6.8,color:'#ffedfe',align:'center'},name:{show:1,x:50,y:57,size:7.2,color:'#ffd7ff',align:'center'},attrs:{show:1,x:50,y:72,size:6.6,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#efcaff',align:'center'}},
-  diamond:{photo:{show:1,x:50,y:30,w:66,h:44},logo:{show:1,x:81.5,y:22,w:22.5},overall:{show:1,x:17,y:21,size:12,color:'#12fffe',align:'center'},role:{show:1,x:17.5,y:29.5,size:5.4,color:'#ffffff',align:'center'},number:{show:1,x:81.5,y:30,size:6.2,color:'#ffffff',align:'center'},name:{show:1,x:50,y:57.5,size:7.4,color:'#7bf7ff',align:'center'},attrs:{show:1,x:50,y:73,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#93e3fd',align:'center'}},
-  gold:{photo:{show:1,x:50,y:26.5,w:66,h:49},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:11,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:6.2,color:'#fcfcff',align:'center'},number:{show:1,x:81.5,y:27.5,size:6.8,color:'#ffffff',align:'center'},name:{show:1,x:50,y:59.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:74.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:91,size:4.6,color:'#c49e00',align:'center'}},
-  silver:{photo:{show:1,x:50,y:29.5,w:72,h:44},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:13.6,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:5.2,color:'#ffffff',align:'center'},number:{show:1,x:82,y:28,size:6.4,color:'#ffffff',align:'center'},name:{show:1,x:50,y:58.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:73.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:90,size:4,color:'#d6d6d6',align:'center'}}
+  goat:{photo:{show:1,x:50,y:23.5,w:86,h:47},logo:{show:1,x:78,y:20.5,w:22.5},overall:{show:1,x:18.5,y:20,size:11,color:'#fff1b3',align:'center'},role:{show:1,x:18.5,y:29,size:4.6,color:'#ffcc02',align:'center'},number:{show:1,x:77.5,y:28.5,size:6.2,color:'#ffcc02',align:'center'},name:{show:1,x:50,y:56.5,size:6.4,color:'#fff7bd',align:'center'},attrs:{show:1,x:50,y:68.5,size:6.4,color:'#fff2d0'},tierName:{show:1,x:50,y:85,size:5.2,color:'#ff6a00',align:'center'}},
+  mythic:{photo:{show:1,x:50,y:31,w:66,h:42.5},logo:{show:1,x:79.5,y:19,w:22},overall:{show:1,x:19,y:18,size:12,color:'#fcdbff',align:'center'},role:{show:1,x:19,y:24.5,size:4.6,color:'#ffffff',align:'center'},number:{show:1,x:79,y:26.5,size:6.8,color:'#ffedfe',align:'center'},name:{show:1,x:50,y:57,size:7.2,color:'#ffd7ff',align:'center'},attrs:{show:1,x:50,y:73,size:6.6,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#efcaff',align:'center'}},
+  diamond:{photo:{show:1,x:50,y:30,w:66,h:44},logo:{show:1,x:81.5,y:22,w:22.5},overall:{show:1,x:17,y:21,size:12,color:'#12fffe',align:'center'},role:{show:1,x:17.5,y:29.5,size:5.4,color:'#ffffff',align:'center'},number:{show:1,x:81.5,y:30,size:6.2,color:'#ffffff',align:'center'},name:{show:1,x:50,y:57.5,size:7.4,color:'#7bf7ff',align:'center'},attrs:{show:1,x:50,y:74,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#93e3fd',align:'center'}},
+  gold:{photo:{show:1,x:50,y:26.5,w:66,h:49},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:11,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:6.2,color:'#fcfcff',align:'center'},number:{show:1,x:81.5,y:27.5,size:6.8,color:'#ffffff',align:'center'},name:{show:1,x:50,y:59.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:75.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:91,size:4.6,color:'#c49e00',align:'center'}},
+  silver:{photo:{show:1,x:50,y:29.5,w:72,h:44},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:13.6,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:5.2,color:'#ffffff',align:'center'},number:{show:1,x:82,y:28,size:6.4,color:'#ffffff',align:'center'},name:{show:1,x:50,y:58.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:74.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:90,size:4,color:'#d6d6d6',align:'center'}}
 };
 function deepMerge(base,over){ const o=JSON.parse(JSON.stringify(base)); if(over) Object.keys(over).forEach(k=>{ o[k]=(typeof over[k]==='object'&&!Array.isArray(over[k]))?deepMerge(o[k]||{},over[k]):over[k]; }); return o; }
 function getCardLayout(tier){ return deepMerge(BASE_CARD_LAYOUT, DEPLOY_CARD_LAYOUTS[tier]); }
@@ -666,11 +680,14 @@ function myAttributes(){
   const sport=sportOf(), cats=myCatRatings(), p=P().p, ovr=myOverallForCard()||60;
   let defs=ATTR_MAP_P[sport]||ATTR_MAP_P.pallavolo;
   if(sport==='calcio'){ const gk=/portier|^\s*p\s*$|^por/i.test((p&&p.role)||''); defs = gk?ATTR_MAP_P.calcio_gk:ATTR_MAP_P.calcio; }
-  return defs.map(([label,short,src])=>{
+  const attrs = defs.map(([label,short,src])=>{
     const vals=src.map(c=>cats[c]).filter(v=>v!=null);
     let rating = vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length*10) : ovr;
     return {label,short,rating:Math.max(1,Math.min(100,rating))};
   });
+  const rifl=mgReflexRating(); if(rifl!=null) attrs.push({label:'Riflessi',short:'RIFL',rating:rifl});
+  const perc=mgPerceptionRating(); if(perc!=null) attrs.push({label:'Percezione',short:'PERC',rating:perc});
+  return attrs;
 }
 function renderCardAttrs(el,width){
   if(!el||!el.show) return '';
@@ -725,35 +742,38 @@ function openMyCard(){
     </div>`);
 }
 
-/* ---------- Formazione consigliata (ricevuta dal mister) ---------- */
-function openLineup(){
-  const lu=P().lineup;
-  if(!lu||!Array.isArray(lu.slots)||!lu.slots.length){
-    openModal(`<div class="modal-head"><h3><i class="fa-solid fa-people-group" style="color:var(--brand)"></i> Formazione consigliata</h3>
-      <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
-      <div class="modal-body"><p style="opacity:.7">Il mister non ha ancora condiviso una formazione consigliata.</p></div>`);
-    return;
+/* ---------- Formazione consigliata (ricevuta dal mister) — tab a schermo intero in navbar ---------- */
+function renderFormazione(){
+  const lu=P().lineup, hasLineup=!!lu&&Array.isArray(lu.slots)&&!!lu.slots.length;
+  const navBtn=document.getElementById('nav-formazione');
+  if(navBtn){
+    navBtn.classList.toggle('locked',!hasLineup);
+    const ic=navBtn.querySelector('i'); if(ic) ic.className=hasLineup?'fa-solid fa-people-group':'fa-solid fa-lock';
   }
-  const p=P().p, myNum=p.number;
-  const tokens=lu.slots.map(s=>{
-    const mine = (myNum!=null && s.number===myNum) || s.playerName===p.name;
-    const ovrTxt = lu.showOverall ? (s.overall!=null ? s.overall : 'NC') : '';
-    return `<div style="position:absolute;left:${(s.x*100).toFixed(1)}%;top:${(s.y*100).toFixed(1)}%;transform:translate(-50%,-50%);text-align:center">
-      <div style="width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;
-        background:${mine?'var(--brand)':'rgba(255,255,255,.12)'};color:${mine?'#04210f':'#fff'};border:2px solid ${mine?'var(--brand)':'rgba(255,255,255,.35)'};">${s.number!=null?s.number:''}</div>
-      <div style="font-size:10px;margin-top:2px;color:${mine?'var(--brand)':'rgba(255,255,255,.75)'};font-weight:${mine?'800':'600'};white-space:nowrap">${s.playerName||s.ruolo_o_zona||''}</div>
-      ${lu.showOverall?`<div style="font-size:9px;color:rgba(255,255,255,.55)">${ovrTxt}</div>`:''}
-    </div>`;
-  }).join('');
-  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-people-group" style="color:var(--brand)"></i> Formazione consigliata</h3>
-    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
-    <div class="modal-body">
+  let html=`<div class="sec-title">Tattica</div><div class="sec-h">Formazione consigliata</div>`;
+  if(!hasLineup){
+    html+=`<div class="empty-state"><i class="fa-solid fa-lock"></i>In attesa che il mister invii la formazione consigliata dal suo AiRIM.</div>`;
+  } else {
+    const p=P().p, myNum=p.number;
+    const tokens=lu.slots.map(s=>{
+      const mine = (myNum!=null && s.number===myNum) || s.playerName===p.name;
+      const ovrTxt = lu.showOverall ? (s.overall!=null ? s.overall : 'NC') : '';
+      return `<div style="position:absolute;left:${(s.x*100).toFixed(1)}%;top:${(s.y*100).toFixed(1)}%;transform:translate(-50%,-50%);text-align:center">
+        <div style="width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;
+          background:${mine?'var(--brand)':'rgba(255,255,255,.12)'};color:${mine?'#04210f':'#fff'};border:2px solid ${mine?'var(--brand)':'rgba(255,255,255,.35)'};">${s.number!=null?s.number:''}</div>
+        <div style="font-size:10px;margin-top:2px;color:${mine?'var(--brand)':'rgba(255,255,255,.75)'};font-weight:${mine?'800':'600'};white-space:nowrap">${s.playerName||s.ruolo_o_zona||''}</div>
+        ${lu.showOverall?`<div style="font-size:9px;color:rgba(255,255,255,.55)">${ovrTxt}</div>`:''}
+      </div>`;
+    }).join('');
+    html+=`<div class="card">
       <p style="opacity:.65;font-size:13px;margin-bottom:10px">Scelti in base alla media voto: per ogni ruolo gioca chi rende di più.</p>
       <div style="position:relative;width:100%;aspect-ratio:2/3;border-radius:12px;overflow:hidden">
         ${courtSVG(lu.sport||sportOf())}
         ${tokens}
       </div>
-    </div>`);
+    </div>`;
+  }
+  document.getElementById('formazione').innerHTML=html;
 }
 
 /* =========================================================
@@ -764,6 +784,8 @@ function mgCSS(){
   if(document.getElementById('mg-css'))return;
   const st=document.createElement('style'); st.id='mg-css';
   st.textContent=`
+  .mg-cat-title{font-size:.7rem;letter-spacing:2px;text-transform:uppercase;color:var(--brand);font-weight:700;margin:1.1rem 0 .5rem;}
+  .mg-cat-title:first-child{margin-top:0;}
   .mg-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .mg-tile{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:14px;padding:1rem;text-align:center;cursor:pointer;transition:.15s;}
   .mg-tile:hover{border-color:var(--brand);}
@@ -777,9 +799,13 @@ function mgCSS(){
   .mg-stage{position:relative;background:var(--surface-2);border:1px solid var(--line-soft);border-radius:16px;height:min(58vh,440px);display:flex;align-items:center;justify-content:center;overflow:hidden;margin:1rem 0;}
   .mg-circle{width:120px;height:120px;border-radius:50%;background:var(--surface-3);border:3px solid var(--line);transition:background .12s,border-color .12s;display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:700;font-size:.85rem;text-align:center;cursor:pointer;user-select:none;}
   .mg-circle.go{background:var(--brand);border-color:var(--brand);color:#04140A;}
+  .mg-circle.nogo{background:var(--bad);border-color:var(--bad);color:#fff;}
   .mg-word{font-family:'Outfit',sans-serif;font-weight:900;font-size:2.1rem;text-align:center;letter-spacing:.5px;}
   .mg-choices{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:1.1rem;}
   .mg-choice{border:none;border-radius:12px;padding:16px;font-weight:800;color:#04140A;cursor:pointer;font-family:'Outfit',sans-serif;font-size:.92rem;}
+  .mg-choice:disabled{opacity:.35;cursor:default;}
+  .mg-cm-bar{position:absolute;top:15%;bottom:15%;width:14px;border-radius:8px;border:2px solid var(--line);background:transparent;transition:background .08s;}
+  .mg-cm-bar.left{left:5%;} .mg-cm-bar.right{right:5%;}
   .mg-fix{width:12px;height:12px;border-radius:50%;background:var(--muted);position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);}
   .mg-zone{position:absolute;width:22%;height:22%;border-radius:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;cursor:pointer;}
   .mg-zone .dot{width:26px;height:26px;border-radius:50%;background:transparent;transition:background .1s;}
@@ -811,28 +837,103 @@ function mgReactionBestVal(arr){ if(!arr||!arr.length) return null; return arr.r
 function mgReactionPB(){ const b=mgReactionBestVal(MG.reaction); return b!=null?`PB: ${b} ms`:'Nessun tentativo ancora'; }
 function mgStroopPB(){ const b=mgBestOf(MG.stroop); return b?`PB: ${mgPbLabel(b)}`:'Nessun tentativo ancora'; }
 function mgPeripheralPB(){ const b=mgBestOf(MG.peripheral); return b?`PB: ${mgPbLabel(b)}`:'Nessun tentativo ancora'; }
+/* Go/No-Go: PB = meno errori, poi tempo corretto piu' basso */
+function mgGngIsBetter(e,best){
+  if(!best) return true;
+  if(e.errori!==best.errori) return e.errori<best.errori;
+  const ea=e.ms_corretto==null?Infinity:e.ms_corretto, ba=best.ms_corretto==null?Infinity:best.ms_corretto;
+  return ea<ba;
+}
+function mgGngBestOf(arr){ if(!arr||!arr.length) return null; return arr.reduce((best,e)=>mgGngIsBetter(e,best)?e:best,null); }
+function mgGngPbLabel(e){ return e? `${e.ms_corretto!=null?e.ms_corretto+' ms':'—'} · ${100-e.errori}% precisione` : '—'; }
+function mgGngPB(){ const b=mgGngBestOf(MG.gonogo); return b?`PB: ${mgGngPbLabel(b)}`:'Nessun tentativo ancora'; }
+/* Peripheral Color Match: PB = accuratezza piu' alta, poi tempo medio piu' basso */
+function mgCmIsBetter(e,best){
+  if(!best) return true;
+  if(e.accuratezza!==best.accuratezza) return e.accuratezza>best.accuratezza;
+  const ea=e.ms_medio==null?Infinity:e.ms_medio, ba=best.ms_medio==null?Infinity:best.ms_medio;
+  return ea<ba;
+}
+function mgCmBestOf(arr){ if(!arr||!arr.length) return null; return arr.reduce((best,e)=>mgCmIsBetter(e,best)?e:best,null); }
+function mgCmPbLabel(e){ return e? `${e.accuratezza}% · ${e.ms_medio!=null?e.ms_medio+' ms':'—'}` : '—'; }
+function mgCmPB(){ const b=mgCmBestOf(MG.colormatch); return b?`PB: ${mgCmPbLabel(b)}`:'Nessun tentativo ancora'; }
+
+/* ---------- rating 1-100 per la Tier Card: Riflessi (Reaction+Stroop) e Percezione (Vista periferica) ----------
+   200ms -> rating 100 (top), 800ms -> rating 1 (fondo), lineare, clamp 1-100. */
+function mgMsToRating(ms){
+  const lo=200, hi=800;
+  const t=Math.max(0,Math.min(1,(ms-lo)/(hi-lo)));
+  return Math.max(1,Math.min(100,Math.round(100-t*99)));
+}
+function mgReflexRating(){
+  if(!MG.reaction.length && !MG.stroop.length) return null;
+  const vals=[];
+  const rPB=mgReactionBestVal(MG.reaction); if(rPB!=null) vals.push(rPB);
+  const sPB=mgBestOf(MG.stroop); if(sPB && sPB.avgTime!=null) vals.push(sPB.avgTime);
+  if(!vals.length) return 1;
+  return mgMsToRating(vals.reduce((a,b)=>a+b,0)/vals.length);
+}
+function mgPerceptionRating(){
+  if(!MG.peripheral.length) return null;
+  const pPB=mgBestOf(MG.peripheral);
+  const timeScore=pPB.avgTime!=null?mgMsToRating(pPB.avgTime):1;
+  return Math.max(1,Math.min(100,Math.round(pPB.accuracy*0.7+timeScore*0.3)));
+}
 
 /* ---------- schermata elenco Mental Gym ---------- */
 function mgOpen(){
   mgCSS(); mgBump();
-  const tiles=[
+  const tileHtml=t=>`<div class="mg-tile" onclick="mgOpenGame('${t.id}')"><div class="ic"><i class="fa-solid ${t.ic}"></i></div><b>${t.label}</b><div class="pb">${t.pb}</div></div>`;
+  const lockedTile=txt=>`<div class="mg-tile locked"><div class="ic"><i class="fa-solid fa-lock"></i></div><b>Prossimamente</b><div class="pb">${txt}</div></div>`;
+  const reflexTiles=[
     {id:'reaction',ic:'fa-bolt',label:'Tempo di reazione',pb:mgReactionPB()},
     {id:'stroop',ic:'fa-palette',label:'Stroop test',pb:mgStroopPB()},
-    {id:'peripheral',ic:'fa-eye',label:'Vista periferica',pb:mgPeripheralPB()}
+    {id:'gonogo',ic:'fa-circle-half-stroke',label:'Go/No-Go',pb:mgGngPB()}
   ];
-  const tileHtml=tiles.map(t=>`<div class="mg-tile" onclick="mgOpenGame('${t.id}')"><div class="ic"><i class="fa-solid ${t.ic}"></i></div><b>${t.label}</b><div class="pb">${t.pb}</div></div>`).join('');
-  const lockedTile=`<div class="mg-tile locked"><div class="ic"><i class="fa-solid fa-lock"></i></div><b>Prossimamente</b><div class="pb">Stiamo creando nuovi allenamenti mentali per te</div></div>`;
+  const perceptionTiles=[
+    {id:'peripheral',ic:'fa-eye',label:'Vista periferica',pb:mgPeripheralPB()},
+    {id:'colormatch',ic:'fa-shuffle',label:'Peripheral Color Match',pb:mgCmPB()}
+  ];
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-brain" style="color:var(--brand)"></i> Mental Gym</h3>
     <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body">
-      <div class="mg-grid">${tileHtml}${lockedTile}</div>
+      <div class="mg-cat-title">Riflessi</div>
+      <div class="mg-grid">${reflexTiles.map(tileHtml).join('')}${lockedTile('Stiamo creando nuovi allenamenti per i riflessi')}</div>
+      <div class="mg-cat-title">Percezione</div>
+      <div class="mg-grid">${perceptionTiles.map(tileHtml).join('')}${lockedTile('Stiamo creando nuovi allenamenti per la percezione')}</div>
       <div class="mg-disclaimer"><i class="fa-solid fa-circle-info"></i> Il punteggio dipende anche dal tuo dispositivo: usalo per seguire i tuoi progressi nel tempo, non per confrontarti con dispositivi diversi dal tuo.</div>
       <button class="btn btn-ghost" style="width:100%;margin-top:1rem" onclick="mgRecalibrate()"><i class="fa-solid fa-crosshairs"></i> Ricalibra dispositivo</button>
+      <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="mgOpenSendCoach()"><i class="fa-solid fa-paper-plane"></i> Invia statistiche al mister</button>
     </div>`);
+}
+/* ---------- sync inverso: invio manuale (copia-incolla codice) delle statistiche mentali al mister ---------- */
+function mgEncodeMentalPkg(obj){ return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))); }
+function mgOpenSendCoach(){
+  const rifl=mgReflexRating(), perc=mgPerceptionRating();
+  if(rifl==null && perc==null){ toast('Gioca almeno un test prima di inviare le statistiche al mister.','danger'); return; }
+  const p=P().p;
+  const payload={k:'vtm-mental',v:1,playerName:p.name,number:p.number,mentalStats:{riflessi:rifl,percezione:perc,aggiornato:new Date().toISOString()}};
+  const code=mgEncodeMentalPkg(payload);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-paper-plane" style="color:var(--brand)"></i> Invia al mister</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem;margin-bottom:1rem">Copia questo codice e invialo al mister (chat, email…): lo incollerà nella sua app per aggiornare i tuoi valori Riflessi/Percezione sulla card.</p>
+      <textarea id="mg-send-code" readonly style="height:100px;font-family:monospace;font-size:.72rem">${code}</textarea>
+      <button class="btn btn-accent" style="width:100%;margin-top:10px" onclick="mgCopyCode()"><i class="fa-solid fa-copy"></i> Copia codice</button>
+    </div>`);
+}
+function mgCopyCode(){
+  const ta=document.getElementById('mg-send-code'); if(!ta) return;
+  const done=()=>toast('Codice copiato');
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(ta.value).then(done).catch(()=>{ ta.select(); try{document.execCommand('copy');}catch(e){} done(); });
+  } else { ta.select(); try{document.execCommand('copy');}catch(e){} done(); }
 }
 function mgOpenGame(id){
   if(!MG.calib){ mgStartCalibration(id); return; }
   if(id==='reaction') mgReactionIntro();
+  else if(id==='gonogo') mgGngIntro();
+  else if(id==='colormatch') mgCmIntro();
   else if(id==='stroop') mgStroopIntro();
   else if(id==='peripheral') mgPeripheralIntro();
 }
@@ -1051,6 +1152,149 @@ function mgPeripheralResult(){
     </div>`);
 }
 
+/* ---------- GIOCO 4: Go/No-Go (categoria Riflessi) ---------- */
+let MG_GNG={i:0,gen:0,correctTimes:[],errors:0,answered:false,t0:0,signalTimer:null,windowTimer:null};
+function mgGngIntro(){
+  mgCSS(); mgBump();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-circle-half-stroke" style="color:var(--brand)"></i> Go/No-Go</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">Il cerchio diventerà VERDE (tocca il più veloce possibile) oppure ROSSO (NON toccare). 10 round.</p>
+      <div class="mg-stage"><div class="mg-circle" id="mg-gng-circle">Preparati…</div></div>
+      <div style="text-align:center;color:var(--muted);font-size:.82rem">Round <b id="mg-gng-n" class="num">1</b> di 10</div>
+    </div>`);
+  const myGen=MG_GEN;
+  setTimeout(()=>{ if(myGen===MG_GEN) mgGngSessionStart(myGen); },600);
+}
+function mgGngSessionStart(gen){ MG_GNG={i:0,gen,correctTimes:[],errors:0,answered:false,t0:0,signalTimer:null,windowTimer:null}; mgGngRound(); }
+function mgGngRound(){
+  if(MG_GNG.gen!==MG_GEN) return;
+  if(MG_GNG.i>=10){ mgGngResult(); return; }
+  const nEl=document.getElementById('mg-gng-n'); if(nEl) nEl.textContent=String(MG_GNG.i+1);
+  const c=document.getElementById('mg-gng-circle'); if(!c) return;
+  c.className='mg-circle'; c.textContent='Attendi…';
+  MG_GNG.answered=false;
+  c.onclick=()=>mgGngTap('early');
+  const wait=1500+Math.random()*2500;
+  MG_GNG.signalTimer=setTimeout(()=>{
+    if(MG_GNG.gen!==MG_GEN) return;
+    const cc=document.getElementById('mg-gng-circle'); if(!cc) return;
+    const isGo=Math.random()<0.8;
+    cc.classList.add(isGo?'go':'nogo');
+    cc.textContent=isGo?'TOCCA!':'NO!';
+    MG_GNG.t0=performance.now();
+    cc.onclick=()=>mgGngTap(isGo?'go':'nogo');
+    MG_GNG.windowTimer=setTimeout(()=>{
+      if(MG_GNG.gen!==MG_GEN || MG_GNG.answered) return;
+      MG_GNG.answered=true;
+      if(isGo) MG_GNG.errors++;
+      mgGngNext();
+    },1000);
+  },wait);
+}
+function mgGngNext(){ MG_GNG.i++; const g=MG_GNG.gen; setTimeout(()=>{ if(g===MG_GEN) mgGngRound(); },350); }
+function mgGngTap(kind){
+  if(MG_GNG.answered) return;
+  MG_GNG.answered=true;
+  clearTimeout(MG_GNG.signalTimer); clearTimeout(MG_GNG.windowTimer);
+  if(kind==='early'||kind==='nogo') MG_GNG.errors++;
+  else if(kind==='go'){ const raw=performance.now()-MG_GNG.t0; MG_GNG.correctTimes.push({raw,corrected:mgCorrect(raw)}); }
+  mgGngNext();
+}
+function mgGngResult(){
+  const correct=MG_GNG.correctTimes;
+  const rawAvg=correct.length?Math.round(correct.reduce((a,b)=>a+b.raw,0)/correct.length):null;
+  const corrAvg=correct.length?Math.round(correct.reduce((a,b)=>a+b.corrected,0)/correct.length):null;
+  const errPct=Math.round(MG_GNG.errors/10*100);
+  const entry={date:new Date().toISOString(),ms_grezzo:rawAvg,ms_corretto:corrAvg,errori:errPct};
+  const pbBefore=mgGngBestOf(MG.gonogo);
+  MG.gonogo.push(entry); mgSave();
+  const isNewPB=mgGngIsBetter(entry,pbBefore) && pbBefore!=null;
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgGngPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.gonogo,e=>`<span>${fmt(e.date)}</span><span>${e.ms_corretto!=null?e.ms_corretto+' ms':'—'} · ${100-e.errori}% precisione</span>`);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-circle-half-stroke" style="color:var(--brand)"></i> Go/No-Go</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-result"><div class="big num">${corrAvg!=null?corrAvg+' ms':'—'}</div><div style="color:var(--muted)">Precisione: ${100-errPct}% su 10 round</div>
+      <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgGngIntro()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
+      <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
+    </div>`);
+}
+
+/* ---------- GIOCO 5: Peripheral Color Match (categoria Percezione) ---------- */
+let MG_CM={i:0,correct:0,times:[],gen:0,t0:0,correctAnswer:null};
+function mgCmIntro(){
+  mgCSS(); mgBump();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-shuffle" style="color:var(--brand)"></i> Peripheral Color Match</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">Tieni lo sguardo fisso sul punto al centro. Due barre ai bordi lampeggiano un colore per 150ms: tocca UGUALI se hanno lo stesso colore, DIVERSI se sono diversi. 10 round.</p>
+      <button class="btn btn-accent" style="width:100%" onclick="mgCmStart()"><i class="fa-solid fa-play"></i> Inizia</button>
+    </div>`);
+}
+function mgCmStart(){ mgBump(); MG_CM={i:0,correct:0,times:[],gen:MG_GEN,t0:0,correctAnswer:null}; mgCmRound(); }
+function mgCmRound(){
+  if(MG_CM.gen!==MG_GEN) return;
+  if(MG_CM.i>=10){ mgCmResult(); return; }
+  document.getElementById('modal').innerHTML=`<div class="modal-head"><h3><i class="fa-solid fa-shuffle" style="color:var(--brand)"></i> Peripheral Color Match <span style="color:var(--muted);font-size:.76rem;margin-left:6px" class="num">${MG_CM.i+1}/10</span></h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-stage" style="height:min(50vh,360px)"><div class="mg-fix"></div><div class="mg-cm-bar left" id="mg-cm-l"></div><div class="mg-cm-bar right" id="mg-cm-r"></div></div>
+      <p style="text-align:center;color:var(--muted-2);font-size:.8rem">Sguardo fisso al centro</p>
+      <div class="mg-choices">
+        <button class="mg-choice" id="mg-cm-same" style="background:var(--surface-3);color:var(--text)" disabled onclick="mgCmAnswer(true)">UGUALI</button>
+        <button class="mg-choice" id="mg-cm-diff" style="background:var(--surface-3);color:var(--text)" disabled onclick="mgCmAnswer(false)">DIVERSI</button>
+      </div>
+    </div>`;
+  const wait=500+Math.random()*700, myGen=MG_GEN;
+  setTimeout(()=>{
+    if(myGen!==MG_GEN) return;
+    const cL=Math.floor(Math.random()*MG_COLORS.length);
+    const same=Math.random()<0.5;
+    let cR=cL;
+    if(!same){ do{ cR=Math.floor(Math.random()*MG_COLORS.length); }while(cR===cL); }
+    const l=document.getElementById('mg-cm-l'), r=document.getElementById('mg-cm-r');
+    if(!l||!r) return;
+    l.style.background=MG_COLORS[cL][1]; r.style.background=MG_COLORS[cR][1];
+    MG_CM.t0=performance.now(); MG_CM.correctAnswer=same;
+    setTimeout(()=>{
+      if(myGen!==MG_GEN) return;
+      l.style.background='transparent'; r.style.background='transparent';
+      const bs=document.getElementById('mg-cm-same'), bd=document.getElementById('mg-cm-diff');
+      if(bs) bs.disabled=false; if(bd) bd.disabled=false;
+    },150);
+  },wait);
+}
+function mgCmAnswer(guessedSame){
+  if(MG_CM.gen!==MG_GEN) return;
+  const raw=performance.now()-MG_CM.t0;
+  MG_CM.times.push(mgCorrect(raw));
+  if(guessedSame===MG_CM.correctAnswer) MG_CM.correct++;
+  MG_CM.i++;
+  mgCmRound();
+}
+function mgCmResult(){
+  const accuracy=Math.round(MG_CM.correct/10*100);
+  const msMedio=MG_CM.times.length?Math.round(MG_CM.times.reduce((a,b)=>a+b,0)/MG_CM.times.length):null;
+  const entry={date:new Date().toISOString(),accuratezza:accuracy,ms_medio:msMedio};
+  const pbBefore=mgCmBestOf(MG.colormatch);
+  MG.colormatch.push(entry); mgSave();
+  const isNewPB=mgCmIsBetter(entry,pbBefore) && pbBefore!=null;
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgCmPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.colormatch,e=>`<span>${fmt(e.date)}</span><span>${e.accuratezza}% · ${e.ms_medio!=null?e.ms_medio+' ms':'—'}</span>`);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-shuffle" style="color:var(--brand)"></i> Peripheral Color Match</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-result"><div class="big num">${accuracy}%</div><div style="color:var(--muted)">Tempo medio di risposta: ${msMedio!=null?msMedio+' ms':'—'}</div>
+      <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgCmStart()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
+      <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
+    </div>`);
+}
+
 /* =========================================================
    CHECK-IN BENESSERE — form locale (sonno, affaticamento, umore, mappa corporea)
    Solo dati locali (localStorage, chiave WL_LS). Nessun invio al mister.
@@ -1059,10 +1303,11 @@ function wlCSS(){
   if(document.getElementById('wl-css'))return;
   const st=document.createElement('style'); st.id='wl-css';
   st.textContent=`
-  .wl-gender-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-  .wl-gender-card{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:14px;padding:1rem;text-align:center;cursor:pointer;transition:.15s;}
-  .wl-gender-card:hover{border-color:var(--brand);}
-  .wl-gender-card img{width:100%;max-width:96px;margin:0 auto .5rem;display:block;}
+  .wl-gender-switch{position:relative;display:flex;width:184px;height:36px;background:var(--surface-3);border:1px solid var(--line);border-radius:20px;padding:3px;margin:0 auto .9rem;}
+  .wl-gender-thumb{position:absolute;top:3px;left:3px;width:calc(50% - 3px);height:calc(100% - 6px);border-radius:16px;background:#22D3EE;box-shadow:0 2px 6px rgba(0,0,0,.35);transition:transform .22s cubic-bezier(.4,0,.2,1),background .22s;z-index:0;}
+  .wl-gender-thumb.on{transform:translateX(100%);background:#F472B6;}
+  .wl-gender-side{position:relative;z-index:1;flex:1;background:none;border:none;font-family:'Urbanist',sans-serif;font-size:.76rem;font-weight:800;color:var(--muted);cursor:pointer;transition:color .2s;}
+  .wl-gender-side.active{color:#04140A;}
   .wl-slider-row{margin-bottom:1.1rem;}
   .wl-slider-row .lbl{display:flex;justify-content:space-between;font-size:.82rem;font-weight:700;margin-bottom:6px;}
   .wl-slider-row .lbl .v{color:var(--brand);}
@@ -1074,7 +1319,11 @@ function wlCSS(){
   .wl-toggle button.on{background:var(--brand);color:#04140A;border-color:var(--brand);}
   .wl-map{position:relative;width:100%;max-width:240px;margin:0 auto;aspect-ratio:620/1120;border-radius:14px;overflow:hidden;background:var(--surface-2);border:1px solid var(--line-soft);cursor:crosshair;}
   .wl-map img{width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none;}
-  .wl-marker{position:absolute;width:24px;height:24px;border-radius:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;color:#04140A;font-weight:800;font-size:.7rem;border:2px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(0,0,0,.45);cursor:pointer;}
+  .wl-marker{position:absolute;width:24px;height:24px;border-radius:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;color:#04140A;font-weight:800;font-size:.7rem;border:2px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(0,0,0,.45);cursor:pointer;z-index:2;}
+  .wl-marker-pending{position:absolute;width:24px;height:24px;border-radius:50%;transform:translate(-50%,-50%);border:2.5px solid #000;background:transparent;box-shadow:0 0 0 2px rgba(255,255,255,.55);pointer-events:none;z-index:2;animation:wlPendingPulse 1s ease-in-out infinite;}
+  @keyframes wlPendingPulse{0%,100%{opacity:1}50%{opacity:.45}}
+  .wl-zone-box{position:absolute;border:1px dashed rgba(245,179,1,.85);background:rgba(245,179,1,.1);pointer-events:none;z-index:1;box-sizing:border-box;}
+  .wl-zone-box span{position:absolute;top:1px;left:1px;font-size:7px;line-height:1.1;color:#04140A;background:rgba(245,179,1,.9);padding:1px 3px;border-radius:3px;white-space:nowrap;font-weight:700;}
   .wl-hint{text-align:center;color:var(--muted-2);font-size:.74rem;margin-top:8px;}
   .wl-pending{background:var(--surface-2);border:1px solid var(--brand);border-radius:14px;padding:.9rem;margin-top:.8rem;}
   .wl-pending .t{font-size:.8rem;font-weight:700;margin-bottom:8px;}
@@ -1095,33 +1344,106 @@ const WL_FATICA_LABELS=['Fresco','In forma','Nella norma','Stanco','Esausto'];
 const WL_UMORE_LABELS=['Giù','Sottotono','Nella norma','Carico','Al top'];
 const WL_INT_COLORS=['#22C55E','#84CC16','#F5B301','#F0763C','#F0463C'];
 let WL_DRAFT=null;
+let WL_DEBUG=false;
+
+/* ---------- MODULO C: mappa zone corporee (rettangoli invisibili in % sull'immagine) ----------
+   Costante facile da modificare a mano: ogni zona = {label, x, y, w, h} in percentuale
+   dell'immagine (x/y = angolo in alto a sinistra, w/h = larghezza/altezza).
+   Stessa mappa per maschio e femmina (silhouette proporzionalmente simili, vedi Modulo B).
+   Ordine dell'array = priorità di match quando i rettangoli si sovrappongono: le zone
+   periferiche (spalle, braccia, gambe) vengono prima delle zone larghe di tronco.
+   Per ritoccare una zona: attiva la MODALITA' DEBUG (vedi wlTitleTap) e cambia 2-3 numeri qui.
+   Convenzione sx/dx: riferita alla posizione sullo SCHERMO (sinistra dell'immagine = "sinistra"),
+   non al lato anatomico dell'atleta specchiato: se preferite la convenzione anatomica a specchio,
+   basta scambiare le label "sinistra"/"destra" qui sotto. */
+const WL_ZONE_MAP={
+  front:[
+    {label:'Testa/collo',        x:33, y:2,  w:34, h:16},
+    {label:'Spalla sinistra',    x:14, y:16, w:20, h:9},
+    {label:'Spalla destra',      x:66, y:16, w:20, h:9},
+    {label:'Mano sinistra',      x:25, y:47, w:16, h:12},
+    {label:'Mano destra',        x:59, y:47, w:16, h:12},
+    {label:'Braccio sinistro',   x:10, y:23, w:19, h:33},
+    {label:'Braccio destro',     x:71, y:23, w:19, h:33},
+    {label:'Petto',              x:30, y:18, w:40, h:19},
+    {label:'Addome',             x:30, y:37, w:40, h:14},
+    {label:'Anca',               x:28, y:49, w:44, h:9},
+    {label:'Coscia sinistra',    x:30, y:57, w:20, h:16},
+    {label:'Coscia destra',      x:50, y:57, w:20, h:16},
+    {label:'Ginocchio sinistro', x:32, y:72, w:16, h:6},
+    {label:'Ginocchio destro',   x:52, y:72, w:16, h:6},
+    {label:'Polpaccio sinistro', x:32, y:77, w:17, h:8},
+    {label:'Polpaccio destro',   x:51, y:77, w:17, h:8},
+    {label:'Caviglia/piede sinistro', x:28, y:85, w:22, h:15},
+    {label:'Caviglia/piede destro',   x:50, y:85, w:22, h:15}
+  ],
+  back:[
+    {label:'Testa/collo',        x:33, y:2,  w:34, h:16},
+    {label:'Spalla sinistra',    x:14, y:16, w:20, h:9},
+    {label:'Spalla destra',      x:66, y:16, w:20, h:9},
+    {label:'Mano sinistra',      x:25, y:47, w:16, h:12},
+    {label:'Mano destra',        x:59, y:47, w:16, h:12},
+    {label:'Braccio sinistro',   x:10, y:23, w:19, h:33},
+    {label:'Braccio destro',     x:71, y:23, w:19, h:33},
+    {label:'Schiena alta',       x:30, y:18, w:40, h:19},
+    {label:'Schiena bassa',      x:30, y:37, w:40, h:14},
+    {label:'Anca',               x:28, y:49, w:44, h:9},
+    {label:'Coscia sinistra',    x:30, y:57, w:20, h:16},
+    {label:'Coscia destra',      x:50, y:57, w:20, h:16},
+    {label:'Ginocchio sinistro', x:32, y:72, w:16, h:6},
+    {label:'Ginocchio destro',   x:52, y:72, w:16, h:6},
+    {label:'Polpaccio sinistro', x:32, y:77, w:17, h:8},
+    {label:'Polpaccio destro',   x:51, y:77, w:17, h:8},
+    {label:'Caviglia/piede sinistro', x:28, y:85, w:22, h:15},
+    {label:'Caviglia/piede destro',   x:50, y:85, w:22, h:15}
+  ]
+};
+function wlZoneAt(xPct,yPct,view){
+  const list=WL_ZONE_MAP[view]||WL_ZONE_MAP.front;
+  for(const z of list){ if(xPct>=z.x && xPct<=z.x+z.w && yPct>=z.y && yPct<=z.y+z.h) return z; }
+  return null;
+}
+function wlDebugOverlay(){
+  if(!WL_DEBUG) return '';
+  const list=WL_ZONE_MAP[WL_DRAFT.view]||[];
+  return list.map(z=>`<div class="wl-zone-box" style="left:${z.x}%;top:${z.y}%;width:${z.w}%;height:${z.h}%"><span>${z.label}</span></div>`).join('');
+}
+let WL_TITLE_TAPS=0, WL_TITLE_TIMER=null;
+function wlTitleTap(){
+  WL_TITLE_TAPS++;
+  clearTimeout(WL_TITLE_TIMER);
+  WL_TITLE_TIMER=setTimeout(()=>{ WL_TITLE_TAPS=0; },1500);
+  if(WL_TITLE_TAPS>=3){
+    WL_TITLE_TAPS=0; WL_DEBUG=!WL_DEBUG;
+    toast(WL_DEBUG?'Modalità debug zone attiva':'Modalità debug zone disattivata');
+    wlForm();
+  }
+}
 function wlIntensityColor(n){ return WL_INT_COLORS[Math.max(1,Math.min(5,n))-1]; }
 function wlFreshDraft(){ return {view:'front',zones:[],sonno:8,fatica:3,umore:3,pending:null}; }
 
-/* ---------- selezione MASCHIO/FEMMINA (una tantum, modificabile) ---------- */
-function wlGenderPicker(fromForm){
-  wlCSS();
-  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-person" style="color:var(--brand)"></i> Check-in benessere</h3>
-    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
-    <div class="modal-body">
-      <p style="color:var(--muted);font-size:.88rem;margin-bottom:1rem">Scegli la sagoma da usare per segnalare le zone del corpo. Potrai cambiarla in qualsiasi momento.</p>
-      <div class="wl-gender-grid">
-        <div class="wl-gender-card" onclick="wlSetGender('male')"><img src="body/male.png" alt="Maschio"><b>Maschio</b></div>
-        <div class="wl-gender-card" onclick="wlSetGender('female')"><img src="body/female.png" alt="Femmina"><b>Femmina</b></div>
-      </div>
-      ${fromForm?'<button class="btn btn-ghost" style="width:100%;margin-top:1rem" onclick="wlForm()"><i class="fa-solid fa-arrow-left"></i> Annulla</button>':''}
-    </div>`);
+/* ---------- selezione MASCHIO/FEMMINA: toggle switch stile iOS (una tantum, sempre modificabile) ---------- */
+function wlGenderToggleHtml(){
+  const isF=WL.gender==='female';
+  return `<div class="wl-gender-switch">
+    <div id="wl-gender-thumb" class="wl-gender-thumb ${isF?'on':''}"></div>
+    <button type="button" class="wl-gender-side ${!isF?'active':''}" onclick="wlSetGenderToggle('male')">Uomo</button>
+    <button type="button" class="wl-gender-side ${isF?'active':''}" onclick="wlSetGenderToggle('female')">Donna</button>
+  </div>`;
 }
-function wlSetGender(g){
+function wlSetGenderToggle(g){
+  if(WL.gender===g) return;
   WL.gender=g; wlSave();
-  if(!WL_DRAFT) WL_DRAFT=wlFreshDraft();
-  wlForm();
+  const thumb=document.getElementById('wl-gender-thumb');
+  if(thumb) thumb.classList.toggle('on',g==='female');
+  document.querySelectorAll('.wl-gender-side').forEach((el,i)=>el.classList.toggle('active',(i===0&&g!=='female')||(i===1&&g==='female')));
+  const img=document.querySelector('.wl-map img'); if(img) img.src=wlBodyImg();
 }
 
 /* ---------- form check-in ---------- */
 function wlOpen(){
   wlCSS();
-  if(!WL.gender){ wlGenderPicker(false); return; }
+  if(!WL.gender){ WL.gender='male'; wlSave(); }
   WL_DRAFT=wlFreshDraft();
   wlForm();
 }
@@ -1133,17 +1455,22 @@ function wlMapMarkers(){
   return WL_DRAFT.zones.map((z,i)=>({z,i})).filter(o=>o.z.view===WL_DRAFT.view)
     .map(o=>`<div class="wl-marker" style="left:${o.z.x}%;top:${o.z.y}%;background:${wlIntensityColor(o.z.intensita)}" onclick="event.stopPropagation();wlMarkerTap(${o.i})">${o.z.intensita}</div>`).join('');
 }
+function wlPendingMarkerHtml(){
+  if(!WL_DRAFT.pending || WL_DRAFT.pending.mode!=='add') return '';
+  return `<div class="wl-marker-pending" style="left:${WL_DRAFT.pending.x}%;top:${WL_DRAFT.pending.y}%"></div>`;
+}
 function wlZoneListHtml(){
   if(!WL_DRAFT.zones.length) return `<div style="color:var(--muted-2);font-size:.8rem;padding:.4rem 0">Nessuna zona segnalata in questo check-in.</div>`;
-  return `<div class="wl-zonelist">${WL_DRAFT.zones.map((z,i)=>`<div class="row"><span class="dot" style="background:${wlIntensityColor(z.intensita)}"></span><span>${z.view==='back'?'Retro':'Fronte'} · intensità ${z.intensita}/5</span><button class="x" onclick="wlRemoveZone(${i})" title="Rimuovi"><i class="fa-solid fa-xmark"></i></button></div>`).join('')}</div>`;
+  return `<div class="wl-zonelist">${WL_DRAFT.zones.map((z,i)=>`<div class="row"><span class="dot" style="background:${wlIntensityColor(z.intensita)}"></span><span>${z.zone||'Zona generica'} (${z.view==='back'?'retro':'fronte'}) · intensità ${z.intensita}/5</span><button class="x" onclick="wlRemoveZone(${i})" title="Rimuovi"><i class="fa-solid fa-xmark"></i></button></div>`).join('')}</div>`;
 }
 function wlPendingHtml(){
   if(!WL_DRAFT.pending) return '';
   const isEdit=WL_DRAFT.pending.mode==='edit';
   const curVal=isEdit?WL_DRAFT.zones[WL_DRAFT.pending.idx].intensita:0;
+  const zoneLabel=WL_DRAFT.pending.zoneLabel||'Zona generica';
   const btns=[1,2,3,4,5].map(n=>`<button class="wl-int-btn" style="background:${wlIntensityColor(n)};${curVal===n?'outline:2px solid #fff':''}" onclick="wlPendingSetIntensity(${n})">${n}</button>`).join('');
   return `<div class="wl-pending">
-    <div class="t">${isEdit?'Modifica intensità della zona':'Che intensità di fastidio senti qui?'} (1 = lieve, 5 = forte)</div>
+    <div class="t">${isEdit?'Modifica intensità':'Intensità del fastidio'} — <b style="color:var(--brand)">${zoneLabel}</b> (1 = lieve, 5 = forte)</div>
     <div class="wl-int-row">${btns}</div>
     <div style="display:flex;gap:8px;margin-top:10px">
       ${isEdit?`<button class="btn btn-ghost" style="flex:1" onclick="wlPendingRemove()"><i class="fa-solid fa-xmark"></i> Rimuovi zona</button>`:''}
@@ -1154,10 +1481,7 @@ function wlPendingHtml(){
 function wlForm(){
   wlCSS();
   const histHtml=WL.checkins.length? WL.checkins.slice(-5).slice().reverse().map(e=>`<div class="row"><span>${fmt(e.date)}</span><span>${wlSummary(e)}</span></div>`).join('') : `<div style="color:var(--muted-2);font-size:.82rem;padding:.4rem 0">Nessun check-in registrato ancora.</div>`;
-  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-heart-pulse" style="color:var(--brand)"></i> Check-in benessere</h3>
-    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
-    <div class="modal-body">
-      <p style="color:var(--muted);font-size:.86rem;margin-bottom:1rem">Compilalo quando vuoi, non è obbligatorio né giornaliero. Resta solo sul tuo dispositivo.</p>
+  const bodyHtml=`<p style="color:var(--muted);font-size:.86rem;margin-bottom:1rem">Compilalo quando vuoi, non è obbligatorio né giornaliero. Resta solo sul tuo dispositivo.</p>
 
       <div class="wl-slider-row">
         <div class="lbl"><span>Ore di sonno</span><span class="v num" id="wl-sonno-v">${(+WL_DRAFT.sonno).toFixed(1).replace('.0','')}h</span></div>
@@ -1177,13 +1501,14 @@ function wlForm(){
       </div>
 
       <div class="wl-body-head">
-        <b style="font-size:.86rem">Mappa corporea <button class="link-btn" style="font-size:.78rem;margin-left:6px" onclick="wlGenderPicker(true)">Cambia corpo</button></b>
+        <b style="font-size:.86rem" onclick="wlTitleTap()" title="Tocca 3 volte per la modalità debug zone">Mappa corporea${WL_DEBUG?' <span style="color:var(--warn);font-size:.66rem;font-weight:800;letter-spacing:.5px;margin-left:6px">DEBUG ZONE</span>':''}</b>
         <div class="wl-toggle">
           <button class="${WL_DRAFT.view==='front'?'on':''}" onclick="wlSetView('front')">Fronte</button>
           <button class="${WL_DRAFT.view==='back'?'on':''}" onclick="wlSetView('back')">Retro</button>
         </div>
       </div>
-      <div class="wl-map" onclick="wlMapClick(event)"><img src="${wlBodyImg()}" alt="Sagoma corpo">${wlMapMarkers()}</div>
+      ${wlGenderToggleHtml()}
+      <div class="wl-map" onclick="wlMapClick(event)"><img src="${wlBodyImg()}" alt="Sagoma corpo">${wlDebugOverlay()}${wlMapMarkers()}${wlPendingMarkerHtml()}</div>
       <div class="wl-hint">Tocca sulla sagoma per segnalare una zona indolenzita/affaticata. Tocca un pallino già segnato per modificarlo o rimuoverlo.</div>
       ${wlPendingHtml()}
       ${wlZoneListHtml()}
@@ -1191,7 +1516,10 @@ function wlForm(){
       <button class="btn btn-accent" style="width:100%;margin-top:1.2rem" onclick="wlSaveCheckin()"><i class="fa-solid fa-floppy-disk"></i> Salva check-in</button>
 
       <div class="wl-hist" style="margin-top:1.2rem"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi check-in</b>${histHtml}</div>
-    </div>`);
+      <button class="btn btn-ghost" style="width:100%;margin-top:1rem" onclick="wlOpenSendCoach()"><i class="fa-solid fa-paper-plane"></i> Invia al mister</button>`;
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-heart-pulse" style="color:var(--brand)"></i> Check-in benessere</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">${bodyHtml}</div>`);
 }
 function wlSetView(v){ WL_DRAFT.view=v; WL_DRAFT.pending=null; wlForm(); }
 function wlMapClick(e){
@@ -1199,13 +1527,14 @@ function wlMapClick(e){
   const rect=e.currentTarget.getBoundingClientRect();
   const x=Math.min(100,Math.max(0,(e.clientX-rect.left)/rect.width*100));
   const y=Math.min(100,Math.max(0,(e.clientY-rect.top)/rect.height*100));
-  WL_DRAFT.pending={mode:'add',x:+x.toFixed(1),y:+y.toFixed(1)};
+  const zone=wlZoneAt(x,y,WL_DRAFT.view);
+  WL_DRAFT.pending={mode:'add',x:+x.toFixed(1),y:+y.toFixed(1),zoneLabel:zone?zone.label:'Zona generica'};
   wlForm();
 }
-function wlMarkerTap(idx){ WL_DRAFT.pending={mode:'edit',idx}; wlForm(); }
+function wlMarkerTap(idx){ WL_DRAFT.pending={mode:'edit',idx,zoneLabel:WL_DRAFT.zones[idx].zone||'Zona generica'}; wlForm(); }
 function wlPendingSetIntensity(n){
   if(!WL_DRAFT.pending) return;
-  if(WL_DRAFT.pending.mode==='add') WL_DRAFT.zones.push({x:WL_DRAFT.pending.x,y:WL_DRAFT.pending.y,intensita:n,view:WL_DRAFT.view});
+  if(WL_DRAFT.pending.mode==='add') WL_DRAFT.zones.push({x:WL_DRAFT.pending.x,y:WL_DRAFT.pending.y,intensita:n,view:WL_DRAFT.view,zone:WL_DRAFT.pending.zoneLabel});
   else WL_DRAFT.zones[WL_DRAFT.pending.idx].intensita=n;
   WL_DRAFT.pending=null; wlForm();
 }
@@ -1222,8 +1551,32 @@ function wlSummary(e){
 }
 function wlSaveCheckin(){
   const entry={date:new Date().toISOString(),sonno:+WL_DRAFT.sonno,affaticamento:+WL_DRAFT.fatica,umore:+WL_DRAFT.umore,
-    zone:WL_DRAFT.zones.map(z=>({x:z.x,y:z.y,intensita:z.intensita,view:z.view}))};
+    zone:WL_DRAFT.zones.map(z=>({x:z.x,y:z.y,intensita:z.intensita,view:z.view,zone:z.zone||'Zona generica'}))};
   WL.checkins.push(entry); wlSave();
   toast('Check-in salvato');
   closeModal();
+}
+
+/* ---------- sync inverso: invia lo storico check-in benessere al mister (stesso meccanismo del Mental Gym) ---------- */
+function wlEncodePkg(obj){ return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))); }
+function wlOpenSendCoach(){
+  if(!WL.checkins.length){ toast('Compila almeno un check-in prima di inviarlo al mister.','danger'); return; }
+  const p=P().p;
+  const recent=WL.checkins.slice(-10);
+  const payload={k:'vtm-wellness',v:1,playerName:p.name,number:p.number,checkins:recent};
+  const code=wlEncodePkg(payload);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-paper-plane" style="color:var(--brand)"></i> Invia al mister</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem;margin-bottom:1rem">Copia questo codice e invialo al mister (chat, email…): lo incollerà nella sua app per vedere i tuoi ultimi ${recent.length} check-in benessere nella tua scheda atleta.</p>
+      <textarea id="wl-send-code" readonly style="height:100px;font-family:monospace;font-size:.72rem">${code}</textarea>
+      <button class="btn btn-accent" style="width:100%;margin-top:10px" onclick="wlCopyCode()"><i class="fa-solid fa-copy"></i> Copia codice</button>
+    </div>`);
+}
+function wlCopyCode(){
+  const ta=document.getElementById('wl-send-code'); if(!ta) return;
+  const done=()=>toast('Codice copiato');
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(ta.value).then(done).catch(()=>{ ta.select(); try{document.execCommand('copy');}catch(e){} done(); });
+  } else { ta.select(); try{document.execCommand('copy');}catch(e){} done(); }
 }

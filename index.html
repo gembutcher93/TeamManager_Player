@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Team Manager — Player</title>
+    <title>AiRIM — Player</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#060A18">
     <meta name="description" content="L'app del giocatore: le tue statistiche, il calendario, gli allenamenti e i tuoi progressi sempre in tasca.">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Player">
+    <meta name="apple-mobile-web-app-title" content="AiRIM">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -159,6 +159,8 @@
     .bottomnav button i{font-size:1.15rem;}
     .bottomnav button.active{color:var(--brand);}
     .bottomnav button.active i{transform:translateY(-2px);}
+    .bottomnav button.locked{opacity:.42;}
+    .bottomnav button.locked.active{color:var(--muted-2);}
 
     /* MODAL / TOAST */
     .overlay{position:fixed;inset:0;background:rgba(4,8,18,.8);backdrop-filter:blur(4px);z-index:80;display:none;align-items:center;justify-content:center;padding:1rem;}
@@ -182,14 +184,46 @@
     .empty-state{text-align:center;padding:2rem 1rem;color:var(--muted);}
     .empty-state i{font-size:2.2rem;color:var(--surface-3);display:block;margin-bottom:.6rem;}
     .link-btn{background:none;border:none;color:var(--brand);font-weight:700;cursor:pointer;text-decoration:underline;font-size:.85rem;}
+
+    /* SPLASH — animazione di apertura app, max ~1.3s totali, saltabile con un tap.
+       Nota: la scomparsa usa una transition attivata da JS (classe .pl-hide), non una
+       @keyframes ...forwards: la regola globale reduced-motion qui sopra forza
+       animation:none!important, che farebbe restare lo splash bloccato per sempre se la
+       scomparsa dipendesse da un'animazione. Con una transition invece, reduced-motion la
+       rende istantanea (transition:none!important) ma il cambio di stato avviene comunque. */
+    #pl-splash{position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;
+        background:radial-gradient(1100px 700px at 80% -10%,rgba(34,197,94,.18),transparent 60%),radial-gradient(900px 600px at 0% 110%,rgba(91,155,255,.12),transparent 55%),linear-gradient(170deg,#0C1526,#060A18 60%);
+        cursor:pointer;opacity:1;transition:opacity .3s ease;}
+    #pl-splash.pl-hide{opacity:0;pointer-events:none;}
+    .pl-splash-inner{display:flex;flex-direction:column;align-items:center;gap:12px;}
+    .pl-splash-logo{width:96px;height:96px;border-radius:24px;box-shadow:0 20px 46px -14px rgba(0,0,0,.7);
+        animation:pl-splash-pop .5s cubic-bezier(.2,.8,.2,1) both, pl-splash-pulse 1.8s ease-in-out .5s infinite;}
+    @keyframes pl-splash-pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+    @keyframes pl-splash-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+    .pl-splash-word{font-family:'Outfit',sans-serif;font-weight:800;font-size:1.3rem;letter-spacing:1px;opacity:0;color:var(--text);
+        animation:pl-splash-word-in .4s ease .25s forwards;}
+    .pl-splash-word span{color:var(--brand);}
+    @keyframes pl-splash-word-in{to{opacity:1;}}
     </style>
 </head>
 <body>
+<div id="pl-splash"><div class="pl-splash-inner"><img src="icons/logo-badge.png" class="pl-splash-logo" alt=""><div class="pl-splash-word">Ai<span>RIM</span></div></div></div>
+<script>(function(){
+    var el=document.getElementById('pl-splash'); if(!el) return;
+    var hidden=false;
+    function hide(){
+        if(hidden) return; hidden=true;
+        el.classList.add('pl-hide');
+        setTimeout(function(){ if(el&&el.parentNode) el.parentNode.removeChild(el); },350);
+    }
+    el.addEventListener('click',hide,{once:true});
+    setTimeout(hide,1000);
+})();</script>
 <div id="toast-stack"></div>
 <header class="appbar">
     <img src="icons/logo-badge.png" alt="">
     <div>
-        <div class="t">VOLLEY<span>TEAM</span></div>
+        <div class="t">Ai<span>RIM</span></div>
         <div class="team" id="bar-team">Player</div>
     </div>
     <div class="spacer"></div>
@@ -199,6 +233,7 @@
 
 <div class="wrap">
     <section id="profilo" class="tab active"></section>
+    <section id="formazione" class="tab"></section>
     <section id="statistiche" class="tab"></section>
     <section id="calendario" class="tab"></section>
     <section id="allenamenti" class="tab"></section>
@@ -207,6 +242,7 @@
 
 <nav class="bottomnav">
     <button data-tab="profilo" class="active" onclick="go('profilo')"><i class="fa-solid fa-user"></i> Profilo</button>
+    <button data-tab="formazione" id="nav-formazione" onclick="go('formazione')"><i class="fa-solid fa-people-group"></i> Formazione</button>
     <button data-tab="statistiche" onclick="go('statistiche')"><i class="fa-solid fa-chart-line"></i> Stats</button>
     <button data-tab="calendario" onclick="go('calendario')"><i class="fa-solid fa-calendar-days"></i> Calendario</button>
     <button data-tab="allenamenti" onclick="go('allenamenti')"><i class="fa-solid fa-dumbbell"></i> Allenamenti</button>

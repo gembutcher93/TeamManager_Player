@@ -1,6 +1,6 @@
 {
-  "name": "Player Manager",
-  "short_name": "Player",
+  "name": "AiRIM Player",
+  "short_name": "AiRIM",
   "description": "L'app del giocatore: le tue statistiche, il calendario, gli allenamenti e i progressi.",
   "lang": "it",
   "start_url": "/",
