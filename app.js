@@ -3,7 +3,7 @@
    Importa un "pacchetto profilo" generato dall'app del coach.
    ========================================================= */
 'use strict';
-const APP_VERSION='1.12.0';
+const APP_VERSION='1.14.0';
 const LS='vtm_player_db';
 const MONTHS=['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
 const today=()=>new Date(new Date().toDateString());
@@ -53,6 +53,8 @@ function mgLoad(){
   let r; try{const s=localStorage.getItem(MG_LS); if(s) r=JSON.parse(s);}catch(e){}
   if(!r) r={calib:null,reaction:[],stroop:[],peripheral:[]};
   r.gonogo=r.gonogo||[]; r.colormatch=r.colormatch||[];
+  r.choice=r.choice||[]; r.anticipation=r.anticipation||[];
+  r.flanker=r.flanker||[]; r.subitize=r.subitize||[]; r.spatial=r.spatial||[];
   return r;
 }
 let MG=mgLoad();
@@ -89,6 +91,48 @@ function openImport(){
 function impCode(){ try{applyPkg(decode(document.getElementById('imp-code').value));closeModal();}catch(e){toast('Codice non valido','danger');} }
 function impFile(e){ const f=e.target.files[0];if(!f)return;const r=new FileReader();
     r.onload=()=>{try{applyPkg(JSON.parse(r.result));closeModal();}catch(err){toast('File non valido','danger');}};r.readAsText(f);e.target.value='';}
+
+/* =========================================================
+   BACKUP (Modulo Q) — nessun export esisteva lato Player: scarica
+   in un unico file profilo (S), mental gym (MG) e check-in benessere
+   (WL), le tre chiavi localStorage che l'app usa davvero.
+   ========================================================= */
+function exportPlayerData(){
+  const payload={v:1,k:'vtm-player-backup',exportedAt:new Date().toISOString(), player:S, mentalGym:MG, wellness:WL};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob); const a=document.createElement('a');
+  const d=new Date().toISOString().slice(0,10);
+  a.href=url; a.download=`airim-player-backup-${d}.json`; a.click(); URL.revokeObjectURL(url);
+  toast('Backup scaricato');
+}
+
+/* =========================================================
+   PROMEMORIA BACKUP GIORNALIERO (Modulo Q)
+   Non invasivo, una volta al giorno. Non durante l'onboarding (nessun
+   profilo ancora da salvare) né mentre gira l'animazione di apertura:
+   viene richiamato con un ritardo che la supera.
+   ========================================================= */
+function checkBackupReminderPlayer(){
+  try{
+    if(S.onboard) return;   /* profilo non ancora creato/importato: niente da salvare */
+    const today=new Date().toDateString();
+    if(localStorage.getItem('pl_last_backup_reminder')===today) return;
+    showBackupReminderPlayer();
+  }catch(e){}
+}
+function showBackupReminderPlayer(){
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-cloud-arrow-down" style="color:var(--brand)"></i> Ricordati di fare il backup</h3>
+      <button class="modal-close" onclick="dismissBackupReminderPlayer()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">Se cancelli i dati del telefono o disinstalli l'app, perderai tutto ciò che non hai salvato.</p>
+      <div style="display:flex;gap:8px;margin-top:1.2rem;flex-wrap:wrap">
+        <button class="btn btn-accent" style="flex:1" onclick="backupReminderNowPlayer()"><i class="fa-solid fa-download"></i> Fai backup ora</button>
+        <button class="btn btn-ghost" style="flex:1" onclick="dismissBackupReminderPlayer()">Non oggi</button>
+      </div>
+    </div>`);
+}
+function dismissBackupReminderPlayer(){ localStorage.setItem('pl_last_backup_reminder', new Date().toDateString()); closeModal(); }
+function backupReminderNowPlayer(){ exportPlayerData(); dismissBackupReminderPlayer(); }
 
 /* ---------- chart ---------- */
 function svgLine(values){
@@ -370,6 +414,7 @@ document.addEventListener('pointerdown',function unlockAudioOnce(){ if(window.So
 renderAll();
 if(S.onboard) showOnboarding();
 idbGet('self').then(d=>{ if(d){ PL_PHOTO=d; renderProfilo(); } });
+setTimeout(checkBackupReminderPlayer, 2000);   /* dopo l'animazione di apertura, mai durante */
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('sw.js').then(reg=>{
@@ -906,6 +951,19 @@ function mgCSS(){
   .mg-hist{margin-top:1.1rem;}
   .mg-hist .row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:.82rem;color:var(--text);}
   .mg-hist .row:last-child{border:none;}
+  .mg-quad-wrap{position:absolute;inset:8px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;}
+  .mg-quad{border-radius:14px;background:var(--surface-3);border:2px solid var(--line);cursor:pointer;transition:background .1s,border-color .1s;}
+  .mg-anti-row{display:flex;justify-content:center;align-items:center;gap:14px;flex-wrap:wrap;}
+  .mg-anti-dot{width:22px;height:22px;border-radius:50%;background:var(--surface-3);border:2px solid var(--line);transition:background .08s,box-shadow .08s;}
+  .mg-anti-dot.on{background:var(--brand);border-color:var(--brand);box-shadow:0 0 14px 4px var(--brand-glow);}
+  .mg-flanker-row{display:flex;justify-content:center;align-items:center;gap:10px;font-size:2rem;font-weight:900;color:var(--text);}
+  .mg-flanker-row .ctr{color:var(--brand);}
+  .mg-dotfield{position:absolute;inset:0;}
+  .mg-dotfield .d{position:absolute;width:9px;height:9px;border-radius:50%;transform:translate(-50%,-50%);}
+  .mg-grid4{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:8px;width:min(72vw,300px);height:min(72vw,300px);margin:0 auto;}
+  .mg-cell4{border-radius:10px;background:var(--surface-3);border:2px solid var(--line);cursor:pointer;transition:background .1s,border-color .1s;}
+  .mg-cell4.on{background:var(--brand);border-color:var(--brand);box-shadow:0 0 14px 4px var(--brand-glow);}
+  .mg-cell4.tapped{background:var(--surface-2);border-color:var(--brand);}
   `;
   document.head.appendChild(st);
 }
@@ -916,60 +974,51 @@ function mgHistRows(arr,fmtFn){
   if(!arr||!arr.length) return `<div style="color:var(--muted-2);font-size:.82rem;padding:.6rem 0">Nessun tentativo ancora.</div>`;
   return arr.slice(-5).slice().reverse().map(e=>`<div class="row">${fmtFn(e)}</div>`).join('');
 }
-function mgBestOf(arr){ if(!arr||!arr.length) return null; return arr.reduce((best,e)=>mgIsBetter(e,best)?e:best,null); }
-function mgIsBetter(e,best){
-  if(!best) return true;
-  if(e.accuracy!==best.accuracy) return e.accuracy>best.accuracy;
-  const ea=e.avgTime==null?Infinity:e.avgTime, ba=best.avgTime==null?Infinity:best.avgTime;
-  return ea<ba;
-}
-function mgPbLabel(e){ return e? `${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}` : '—'; }
-function mgReactionBestVal(arr){ if(!arr||!arr.length) return null; return arr.reduce((m,x)=>x.corrected<m?x.corrected:m,arr[0].corrected); }
-function mgReactionPB(){ const b=mgReactionBestVal(MG.reaction); return b!=null?`PB: ${b} ms`:'Nessun tentativo ancora'; }
-function mgStroopPB(){ const b=mgBestOf(MG.stroop); return b?`PB: ${mgPbLabel(b)}`:'Nessun tentativo ancora'; }
-function mgPeripheralPB(){ const b=mgBestOf(MG.peripheral); return b?`PB: ${mgPbLabel(b)}`:'Nessun tentativo ancora'; }
-/* Go/No-Go: PB = meno errori, poi tempo corretto piu' basso */
-function mgGngIsBetter(e,best){
-  if(!best) return true;
-  if(e.errori!==best.errori) return e.errori<best.errori;
-  const ea=e.ms_corretto==null?Infinity:e.ms_corretto, ba=best.ms_corretto==null?Infinity:best.ms_corretto;
-  return ea<ba;
-}
-function mgGngBestOf(arr){ if(!arr||!arr.length) return null; return arr.reduce((best,e)=>mgGngIsBetter(e,best)?e:best,null); }
-function mgGngPbLabel(e){ return e? `${e.ms_corretto!=null?e.ms_corretto+' ms':'—'} · ${100-e.errori}% precisione` : '—'; }
-function mgGngPB(){ const b=mgGngBestOf(MG.gonogo); return b?`PB: ${mgGngPbLabel(b)}`:'Nessun tentativo ancora'; }
-/* Peripheral Color Match: PB = accuratezza piu' alta, poi tempo medio piu' basso */
-function mgCmIsBetter(e,best){
-  if(!best) return true;
-  if(e.accuratezza!==best.accuratezza) return e.accuratezza>best.accuratezza;
-  const ea=e.ms_medio==null?Infinity:e.ms_medio, ba=best.ms_medio==null?Infinity:best.ms_medio;
-  return ea<ba;
-}
-function mgCmBestOf(arr){ if(!arr||!arr.length) return null; return arr.reduce((best,e)=>mgCmIsBetter(e,best)?e:best,null); }
-function mgCmPbLabel(e){ return e? `${e.accuratezza}% · ${e.ms_medio!=null?e.ms_medio+' ms':'—'}` : '—'; }
-function mgCmPB(){ const b=mgCmBestOf(MG.colormatch); return b?`PB: ${mgCmPbLabel(b)}`:'Nessun tentativo ancora'; }
-
-/* ---------- rating 1-100 per la Tier Card: Riflessi (Reaction+Stroop) e Percezione (Vista periferica) ----------
-   200ms -> rating 100 (top), 800ms -> rating 1 (fondo), lineare, clamp 1-100. */
-function mgMsToRating(ms){
-  const lo=200, hi=800;
+/* ---------- FORMULA DI PUNTEGGIO (v1.14): velocita' E precisione contano entrambe ----------
+   speed score 0-100 dal tempo di risposta CORRETTO (ms): 150ms->100 (ottimo), 2000ms->0 (troppo lento),
+   interpolazione lineare tra i due estremi, applicata alla media/mediana dei tempi corretti di sessione.
+   accuracy score 0-100 = % risposte corrette nella sessione.
+   rating finale sessione = (speed x accuracy)/100 -- MOLTIPLICAZIONE, non media: un giocatore lento
+   con precisione perfetta ottiene un rating basso, uno rapido ma impreciso pure. Il personal best di
+   ogni gioco e' la sessione con il rating piu' alto (non il tempo o l'accuratezza isolati).
+   Applicata solo ai tentativi da ora in poi: i tentativi salvati con la vecchia formula (senza campo
+   "rating") restano visibili nello storico ma non competono piu' per il personal best. */
+function mgSpeedScore(ms){
+  if(ms==null) return 0;
+  const lo=150, hi=2000;
   const t=Math.max(0,Math.min(1,(ms-lo)/(hi-lo)));
-  return Math.max(1,Math.min(100,Math.round(100-t*99)));
+  return Math.max(0,Math.min(100,Math.round(100-t*100)));
 }
-function mgReflexRating(){
-  if(!MG.reaction.length && !MG.stroop.length) return null;
-  const vals=[];
-  const rPB=mgReactionBestVal(MG.reaction); if(rPB!=null) vals.push(rPB);
-  const sPB=mgBestOf(MG.stroop); if(sPB && sPB.avgTime!=null) vals.push(sPB.avgTime);
-  if(!vals.length) return 1;
-  return mgMsToRating(vals.reduce((a,b)=>a+b,0)/vals.length);
+function mgRating(speed,accuracy){ return Math.max(0,Math.min(100,Math.round(speed*accuracy/100))); }
+function mgAvg(arr){ return arr.length?Math.round(arr.reduce((a,b)=>a+b,0)/arr.length):null; }
+function mgBestOf(arr){
+  if(!arr||!arr.length) return null;
+  return arr.reduce((best,e)=>{
+    const er=e.rating!=null?e.rating:-1, br=best.rating!=null?best.rating:-1;
+    return er>br?e:best;
+  });
 }
-function mgPerceptionRating(){
-  if(!MG.peripheral.length) return null;
-  const pPB=mgBestOf(MG.peripheral);
-  const timeScore=pPB.avgTime!=null?mgMsToRating(pPB.avgTime):1;
-  return Math.max(1,Math.min(100,Math.round(pPB.accuracy*0.7+timeScore*0.3)));
+function mgPbLabel(e){
+  if(!e) return '—';
+  if(e.rating!=null) return `${e.rating} pt · ${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}`;
+  if(e.accuracy!=null) return `${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'} (vecchia formula)`;
+  if(e.accuratezza!=null) return `${e.accuratezza}% · ${e.ms_medio!=null?e.ms_medio+' ms':'—'} (vecchia formula)`;
+  if(e.ms_corretto!=null) return `${e.ms_corretto!=null?e.ms_corretto+' ms':'—'} · ${100-(e.errori||0)}% (vecchia formula)`;
+  if(e.corrected!=null) return `${e.corrected} ms (vecchia formula)`;
+  return '—';
 }
+function mgPB(arr){ const b=mgBestOf(arr); return b?`PB: ${mgPbLabel(b)}`:'Nessun tentativo ancora'; }
+
+/* ---------- rating 0-100 per la Tier Card: Riflessi e Percezione = media dei rating (personal best) dei giochi giocati in ciascuna categoria ---------- */
+const MG_REFLEX_GAMES=['reaction','stroop','gonogo','choice','anticipation'];
+const MG_PERCEPTION_GAMES=['peripheral','colormatch','flanker','subitize','spatial'];
+function mgCategoryRating(ids){
+  const ratings=ids.map(id=>{ const b=mgBestOf(MG[id]); return (b&&b.rating!=null)?b.rating:null; }).filter(v=>v!=null);
+  if(!ratings.length) return null;
+  return Math.round(ratings.reduce((a,b)=>a+b,0)/ratings.length);
+}
+function mgReflexRating(){ return mgCategoryRating(MG_REFLEX_GAMES); }
+function mgPerceptionRating(){ return mgCategoryRating(MG_PERCEPTION_GAMES); }
 
 /* ---------- schermata elenco Mental Gym ---------- */
 function mgOpen(){
@@ -977,13 +1026,18 @@ function mgOpen(){
   const tileHtml=t=>`<div class="mg-tile" onclick="mgOpenGame('${t.id}')"><div class="ic"><i class="fa-solid ${t.ic}"></i></div><b>${t.label}</b><div class="pb">${t.pb}</div></div>`;
   const lockedTile=txt=>`<div class="mg-tile locked"><div class="ic"><i class="fa-solid fa-lock"></i></div><b>Prossimamente</b><div class="pb">${txt}</div></div>`;
   const reflexTiles=[
-    {id:'reaction',ic:'fa-bolt',label:'Tempo di reazione',pb:mgReactionPB()},
-    {id:'stroop',ic:'fa-palette',label:'Stroop test',pb:mgStroopPB()},
-    {id:'gonogo',ic:'fa-circle-half-stroke',label:'Go/No-Go',pb:mgGngPB()}
+    {id:'reaction',ic:'fa-bolt',label:'Tempo di reazione',pb:mgPB(MG.reaction)},
+    {id:'stroop',ic:'fa-palette',label:'Stroop test',pb:mgPB(MG.stroop)},
+    {id:'gonogo',ic:'fa-circle-half-stroke',label:'Go/No-Go',pb:mgPB(MG.gonogo)},
+    {id:'choice',ic:'fa-arrows-up-down-left-right',label:'Scelta rapida',pb:mgPB(MG.choice)},
+    {id:'anticipation',ic:'fa-stopwatch',label:'Anticipazione',pb:mgPB(MG.anticipation)}
   ];
   const perceptionTiles=[
-    {id:'peripheral',ic:'fa-eye',label:'Vista periferica',pb:mgPeripheralPB()},
-    {id:'colormatch',ic:'fa-shuffle',label:'Peripheral Color Match',pb:mgCmPB()}
+    {id:'peripheral',ic:'fa-eye',label:'Vista periferica',pb:mgPB(MG.peripheral)},
+    {id:'colormatch',ic:'fa-shuffle',label:'Peripheral Color Match',pb:mgPB(MG.colormatch)},
+    {id:'flanker',ic:'fa-arrows-left-right',label:'Filtra il rumore',pb:mgPB(MG.flanker)},
+    {id:'subitize',ic:'fa-braille',label:"Colpo d'occhio",pb:mgPB(MG.subitize)},
+    {id:'spatial',ic:'fa-table-cells',label:'Memoria spaziale',pb:mgPB(MG.spatial)}
   ];
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-brain" style="color:var(--brand)"></i> Mental Gym</h3>
     <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
@@ -1027,6 +1081,11 @@ function mgOpenGame(id){
   else if(id==='colormatch') mgCmIntro();
   else if(id==='stroop') mgStroopIntro();
   else if(id==='peripheral') mgPeripheralIntro();
+  else if(id==='choice') mgChoiceIntro();
+  else if(id==='anticipation') mgAntiIntro();
+  else if(id==='flanker') mgFlankerIntro();
+  else if(id==='subitize') mgSubitizeIntro();
+  else if(id==='spatial') mgSpatialIntro();
 }
 function mgRecalibrate(){ mgStartCalibration(null); }
 
@@ -1072,44 +1131,61 @@ function mgCalibFinish(){
   if(MG_CALIB.afterId) mgOpenGame(MG_CALIB.afterId); else mgOpen();
 }
 
-/* ---------- GIOCO 1: tempo di reazione ---------- */
+/* ---------- GIOCO 1: tempo di reazione (sessione di 5 round: velocita' + precisione, formula A) ---------- */
+let MG_R={i:0,gen:0,correctTimes:[],falseStarts:0,answered:false,t0:0};
 function mgReactionIntro(){
   mgCSS(); mgBump();
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-bolt" style="color:var(--brand)"></i> Tempo di reazione</h3>
     <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body">
-      <p style="color:var(--muted);font-size:.88rem">Il cerchio resterà grigio per un tempo casuale, poi diventerà VERDE: toccalo il più veloce possibile. Se tocchi troppo presto si riparte.</p>
+      <p style="color:var(--muted);font-size:.88rem">Il cerchio resterà grigio per un tempo casuale, poi diventerà VERDE: toccalo il più veloce possibile. Se tocchi troppo presto conta come errore e si passa al round successivo. 5 round.</p>
       <div class="mg-stage"><div class="mg-circle" id="mg-r-circle">Preparati…</div></div>
+      <div style="text-align:center;color:var(--muted);font-size:.82rem">Round <b id="mg-r-n" class="num">1</b> di 5</div>
     </div>`);
   const myGen=MG_GEN;
-  setTimeout(()=>{ if(myGen===MG_GEN) mgReactionRoundStart(); },600);
+  setTimeout(()=>{ if(myGen===MG_GEN) mgReactionSessionStart(myGen); },600);
 }
-function mgReactionRoundStart(){
-  const myGen=MG_GEN;
+function mgReactionSessionStart(gen){ MG_R={i:0,gen,correctTimes:[],falseStarts:0,answered:false,t0:0}; mgReactionRound(); }
+function mgReactionRound(){
+  if(MG_R.gen!==MG_GEN) return;
+  if(MG_R.i>=5){ mgReactionResult(); return; }
+  const nEl=document.getElementById('mg-r-n'); if(nEl) nEl.textContent=String(MG_R.i+1);
   const c=document.getElementById('mg-r-circle'); if(!c) return;
-  c.textContent='Attendi…'; c.classList.remove('go');
-  c.onclick=()=>{ if(myGen!==MG_GEN) return; mgReactionTooEarly(); };
-  const wait=1000+Math.random()*3000;
+  c.classList.remove('go'); c.textContent='Attendi…';
+  MG_R.answered=false;
+  c.onclick=()=>mgReactionTap('early');
+  const wait=1000+Math.random()*3000, myGen=MG_GEN;
   setTimeout(()=>{
     if(myGen!==MG_GEN) return;
     const cc=document.getElementById('mg-r-circle'); if(!cc) return;
     cc.textContent='VAI!'; cc.classList.add('go');
-    const t0=performance.now();
-    cc.onclick=()=>{ if(myGen!==MG_GEN) return; mgReactionResult(performance.now()-t0); };
+    MG_R.t0=performance.now();
+    cc.onclick=()=>mgReactionTap('go');
   },wait);
 }
-function mgReactionTooEarly(){ toast('Troppo presto, riprova','danger'); mgReactionRoundStart(); }
-function mgReactionResult(raw){
-  const corrected=mgCorrect(raw);
-  const pbBefore=mgReactionBestVal(MG.reaction);
-  MG.reaction.push({date:new Date().toISOString(),raw:Math.round(raw),corrected}); mgSave();
-  const isNewPB=pbBefore!=null && corrected<pbBefore;
-  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${pbBefore} ms`);
-  const histHtml=mgHistRows(MG.reaction,e=>`<span>${fmt(e.date)}</span><span>${e.corrected} ms</span>`);
+function mgReactionTap(kind){
+  if(MG_R.answered) return;
+  MG_R.answered=true;
+  if(kind==='early'){ MG_R.falseStarts++; toast('Troppo presto','danger'); }
+  else { MG_R.correctTimes.push(mgCorrect(performance.now()-MG_R.t0)); }
+  MG_R.i++;
+  const g=MG_R.gen; setTimeout(()=>{ if(g===MG_GEN) mgReactionRound(); },400);
+}
+function mgReactionResult(){
+  const avgTime=mgAvg(MG_R.correctTimes);
+  const accuracy=Math.round((5-MG_R.falseStarts)/5*100);
+  const speed=mgSpeedScore(avgTime), rating=mgRating(speed,accuracy);
+  const entry={date:new Date().toISOString(),avgTime,accuracy,rating};
+  const pbBefore=mgBestOf(MG.reaction);
+  MG.reaction.push(entry); mgSave();
+  const isNewPB=pbBefore!=null && rating>(pbBefore.rating!=null?pbBefore.rating:-1);
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.reaction,e=>`<span>${fmt(e.date)}</span><span>${e.rating!=null?e.rating+' pt · ':''}${e.accuracy!=null?e.accuracy+'%':''} ${e.avgTime!=null?'· '+e.avgTime+' ms':(e.corrected!=null?e.corrected+' ms (vecchia formula)':'')}</span>`);
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-bolt" style="color:var(--brand)"></i> Tempo di reazione</h3>
     <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body">
-      <div class="mg-result"><div class="big num">${corrected} ms</div><div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div class="mg-result"><div class="big num">${rating} pt</div><div style="color:var(--muted)">Precisione: ${accuracy}% · Tempo medio: ${avgTime!=null?avgTime+' ms':'—'}</div>
+      <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
       <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgReactionIntro()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
       <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
       <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
@@ -1153,17 +1229,18 @@ function mgStroopAnswer(chosenIdx,correctIdx){
 }
 function mgStroopResult(){
   const accuracy=Math.round(MG_S.correct/10*100);
-  const avgTime=MG_S.times.length?Math.round(MG_S.times.reduce((a,b)=>a+b,0)/MG_S.times.length):null;
-  const entry={date:new Date().toISOString(),avgTime,accuracy};
+  const avgTime=mgAvg(MG_S.times);
+  const speed=mgSpeedScore(avgTime), rating=mgRating(speed,accuracy);
+  const entry={date:new Date().toISOString(),avgTime,accuracy,rating};
   const pbBefore=mgBestOf(MG.stroop);
   MG.stroop.push(entry); mgSave();
-  const isNewPB=mgIsBetter(entry,pbBefore) && pbBefore!=null;
+  const isNewPB=pbBefore!=null && rating>(pbBefore.rating!=null?pbBefore.rating:-1);
   const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
-  const histHtml=mgHistRows(MG.stroop,e=>`<span>${fmt(e.date)}</span><span>${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}</span>`);
+  const histHtml=mgHistRows(MG.stroop,e=>`<span>${fmt(e.date)}</span><span>${e.rating!=null?e.rating+' pt · ':''}${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}</span>`);
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-palette" style="color:var(--brand)"></i> Stroop test</h3>
     <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body">
-      <div class="mg-result"><div class="big num">${accuracy}%</div><div style="color:var(--muted)">Tempo medio risposte corrette: ${avgTime!=null?avgTime+' ms':'—'}</div>
+      <div class="mg-result"><div class="big num">${rating} pt</div><div style="color:var(--muted)">Precisione: ${accuracy}% · Tempo medio risposte corrette: ${avgTime!=null?avgTime+' ms':'—'}</div>
       <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
       <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgStroopStart()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
       <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
@@ -1225,17 +1302,18 @@ function mgPeripheralTap(zoneId){
 }
 function mgPeripheralResult(){
   const accuracy=Math.round(MG_P.correct/10*100);
-  const avgTime=MG_P.times.length?Math.round(MG_P.times.reduce((a,b)=>a+b,0)/MG_P.times.length):null;
-  const entry={date:new Date().toISOString(),avgTime,accuracy};
+  const avgTime=mgAvg(MG_P.times);
+  const speed=mgSpeedScore(avgTime), rating=mgRating(speed,accuracy);
+  const entry={date:new Date().toISOString(),avgTime,accuracy,rating};
   const pbBefore=mgBestOf(MG.peripheral);
   MG.peripheral.push(entry); mgSave();
-  const isNewPB=mgIsBetter(entry,pbBefore) && pbBefore!=null;
+  const isNewPB=pbBefore!=null && rating>(pbBefore.rating!=null?pbBefore.rating:-1);
   const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
-  const histHtml=mgHistRows(MG.peripheral,e=>`<span>${fmt(e.date)}</span><span>${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}</span>`);
+  const histHtml=mgHistRows(MG.peripheral,e=>`<span>${fmt(e.date)}</span><span>${e.rating!=null?e.rating+' pt · ':''}${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}</span>`);
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-eye" style="color:var(--brand)"></i> Vista periferica</h3>
     <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body">
-      <div class="mg-result"><div class="big num">${accuracy}%</div><div style="color:var(--muted)">Tempo medio reazione: ${avgTime!=null?avgTime+' ms':'—'}</div>
+      <div class="mg-result"><div class="big num">${rating} pt</div><div style="color:var(--muted)">Precisione: ${accuracy}% · Tempo medio reazione: ${avgTime!=null?avgTime+' ms':'—'}</div>
       <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
       <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgPeripheralStart()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
       <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
@@ -1295,18 +1373,20 @@ function mgGngTap(kind){
 function mgGngResult(){
   const correct=MG_GNG.correctTimes;
   const rawAvg=correct.length?Math.round(correct.reduce((a,b)=>a+b.raw,0)/correct.length):null;
-  const corrAvg=correct.length?Math.round(correct.reduce((a,b)=>a+b.corrected,0)/correct.length):null;
+  const corrAvg=mgAvg(correct.map(c=>c.corrected));
   const errPct=Math.round(MG_GNG.errors/10*100);
-  const entry={date:new Date().toISOString(),ms_grezzo:rawAvg,ms_corretto:corrAvg,errori:errPct};
-  const pbBefore=mgGngBestOf(MG.gonogo);
+  const accuracy=100-errPct;
+  const speed=mgSpeedScore(corrAvg), rating=mgRating(speed,accuracy);
+  const entry={date:new Date().toISOString(),ms_grezzo:rawAvg,ms_corretto:corrAvg,errori:errPct,accuracy,avgTime:corrAvg,rating};
+  const pbBefore=mgBestOf(MG.gonogo);
   MG.gonogo.push(entry); mgSave();
-  const isNewPB=mgGngIsBetter(entry,pbBefore) && pbBefore!=null;
-  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgGngPbLabel(pbBefore)}`);
-  const histHtml=mgHistRows(MG.gonogo,e=>`<span>${fmt(e.date)}</span><span>${e.ms_corretto!=null?e.ms_corretto+' ms':'—'} · ${100-e.errori}% precisione</span>`);
+  const isNewPB=pbBefore!=null && rating>(pbBefore.rating!=null?pbBefore.rating:-1);
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.gonogo,e=>`<span>${fmt(e.date)}</span><span>${e.rating!=null?e.rating+' pt · ':''}${e.ms_corretto!=null?e.ms_corretto+' ms':'—'} · ${100-e.errori}% precisione</span>`);
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-circle-half-stroke" style="color:var(--brand)"></i> Go/No-Go</h3>
     <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body">
-      <div class="mg-result"><div class="big num">${corrAvg!=null?corrAvg+' ms':'—'}</div><div style="color:var(--muted)">Precisione: ${100-errPct}% su 10 round</div>
+      <div class="mg-result"><div class="big num">${rating} pt</div><div style="color:var(--muted)">Tempo medio: ${corrAvg!=null?corrAvg+' ms':'—'} · Precisione: ${accuracy}% su 10 round</div>
       <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
       <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgGngIntro()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
       <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
@@ -1368,19 +1448,400 @@ function mgCmAnswer(guessedSame){
 }
 function mgCmResult(){
   const accuracy=Math.round(MG_CM.correct/10*100);
-  const msMedio=MG_CM.times.length?Math.round(MG_CM.times.reduce((a,b)=>a+b,0)/MG_CM.times.length):null;
-  const entry={date:new Date().toISOString(),accuratezza:accuracy,ms_medio:msMedio};
-  const pbBefore=mgCmBestOf(MG.colormatch);
+  const msMedio=mgAvg(MG_CM.times);
+  const speed=mgSpeedScore(msMedio), rating=mgRating(speed,accuracy);
+  const entry={date:new Date().toISOString(),accuratezza:accuracy,ms_medio:msMedio,accuracy,avgTime:msMedio,rating};
+  const pbBefore=mgBestOf(MG.colormatch);
   MG.colormatch.push(entry); mgSave();
-  const isNewPB=mgCmIsBetter(entry,pbBefore) && pbBefore!=null;
-  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgCmPbLabel(pbBefore)}`);
-  const histHtml=mgHistRows(MG.colormatch,e=>`<span>${fmt(e.date)}</span><span>${e.accuratezza}% · ${e.ms_medio!=null?e.ms_medio+' ms':'—'}</span>`);
+  const isNewPB=pbBefore!=null && rating>(pbBefore.rating!=null?pbBefore.rating:-1);
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.colormatch,e=>`<span>${fmt(e.date)}</span><span>${e.rating!=null?e.rating+' pt · ':''}${e.accuratezza}% · ${e.ms_medio!=null?e.ms_medio+' ms':'—'}</span>`);
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-shuffle" style="color:var(--brand)"></i> Peripheral Color Match</h3>
     <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body">
-      <div class="mg-result"><div class="big num">${accuracy}%</div><div style="color:var(--muted)">Tempo medio di risposta: ${msMedio!=null?msMedio+' ms':'—'}</div>
+      <div class="mg-result"><div class="big num">${rating} pt</div><div style="color:var(--muted)">Precisione: ${accuracy}% · Tempo medio di risposta: ${msMedio!=null?msMedio+' ms':'—'}</div>
       <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
       <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgCmStart()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
+      <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
+    </div>`);
+}
+
+/* ---------- GIOCO 6: Scelta rapida (Choice Reaction, categoria Riflessi) ---------- */
+let MG_CH={i:0,gen:0,correct:0,times:[],curQuad:null,answered:false,t0:0,timer:null};
+function mgChoiceIntro(){
+  mgCSS(); mgBump();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-arrows-up-down-left-right" style="color:var(--brand)"></i> Scelta rapida</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">Lo schermo è diviso in 4 quadranti. A intervalli casuali uno si illumina con un colore: toccalo il più veloce possibile. 10 round.</p>
+      <button class="btn btn-accent" style="width:100%" onclick="mgChoiceStart()"><i class="fa-solid fa-play"></i> Inizia</button>
+    </div>`);
+}
+function mgChoiceStart(){ mgBump(); MG_CH={i:0,gen:MG_GEN,correct:0,times:[],curQuad:null,answered:false,t0:0,timer:null}; mgChoiceRenderStage(); mgChoiceRound(); }
+function mgChoiceRenderStage(){
+  const quadsHtml=[0,1,2,3].map(q=>`<div class="mg-quad" id="mg-ch-q${q}" onclick="mgChoiceTap(${q})"></div>`).join('');
+  document.getElementById('modal').innerHTML=`<div class="modal-head"><h3><i class="fa-solid fa-arrows-up-down-left-right" style="color:var(--brand)"></i> Scelta rapida <span style="color:var(--muted);font-size:.76rem;margin-left:6px" class="num" id="mg-ch-count">1/10</span></h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-stage"><div class="mg-quad-wrap">${quadsHtml}</div></div>
+    </div>`;
+}
+function mgChoiceRound(){
+  if(MG_CH.gen!==MG_GEN) return;
+  if(MG_CH.i>=10){ mgChoiceResult(); return; }
+  const cEl=document.getElementById('mg-ch-count'); if(cEl) cEl.textContent=`${MG_CH.i+1}/10`;
+  const wait=500+Math.random()*900, myGen=MG_GEN;
+  setTimeout(()=>{
+    if(myGen!==MG_GEN) return;
+    const q=Math.floor(Math.random()*4), colIdx=Math.floor(Math.random()*MG_COLORS.length);
+    MG_CH.curQuad=q; MG_CH.answered=false;
+    const el=document.getElementById('mg-ch-q'+q); if(!el) return;
+    el.style.background=MG_COLORS[colIdx][1]; el.style.borderColor=MG_COLORS[colIdx][1];
+    MG_CH.t0=performance.now();
+    MG_CH.timer=setTimeout(()=>{
+      if(myGen!==MG_GEN || MG_CH.answered) return;
+      MG_CH.answered=true;
+      el.style.background=''; el.style.borderColor='';
+      MG_CH.i++; mgChoiceNext();
+    },1300);
+  },wait);
+}
+function mgChoiceNext(){ const g=MG_CH.gen; setTimeout(()=>{ if(g===MG_GEN) mgChoiceRound(); },350); }
+function mgChoiceTap(q){
+  if(MG_CH.curQuad==null || MG_CH.answered) return;
+  MG_CH.answered=true;
+  clearTimeout(MG_CH.timer);
+  const raw=performance.now()-MG_CH.t0;
+  const el=document.getElementById('mg-ch-q'+MG_CH.curQuad); if(el){ el.style.background=''; el.style.borderColor=''; }
+  if(q===MG_CH.curQuad){ MG_CH.correct++; MG_CH.times.push(mgCorrect(raw)); }
+  MG_CH.i++; mgChoiceNext();
+}
+function mgChoiceResult(){
+  const accuracy=Math.round(MG_CH.correct/10*100);
+  const avgTime=mgAvg(MG_CH.times);
+  const speed=mgSpeedScore(avgTime), rating=mgRating(speed,accuracy);
+  const entry={date:new Date().toISOString(),avgTime,accuracy,rating};
+  const pbBefore=mgBestOf(MG.choice);
+  MG.choice.push(entry); mgSave();
+  const isNewPB=pbBefore!=null && rating>(pbBefore.rating!=null?pbBefore.rating:-1);
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.choice,e=>`<span>${fmt(e.date)}</span><span>${e.rating!=null?e.rating+' pt · ':''}${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}</span>`);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-arrows-up-down-left-right" style="color:var(--brand)"></i> Scelta rapida</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-result"><div class="big num">${rating} pt</div><div style="color:var(--muted)">Precisione: ${accuracy}% · Tempo medio: ${avgTime!=null?avgTime+' ms':'—'}</div>
+      <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgChoiceIntro()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
+      <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
+    </div>`);
+}
+
+/* ---------- GIOCO 7: Anticipazione (Anticipation Timing, categoria Riflessi) ----------
+   "tempo" della formula A = scarto assoluto in ms dal momento esatto in cui si accende l'ultimo pallino
+   (misurato su OGNI round, corretto o no); "corretto" ai fini dell'accuratezza = scarto entro la soglia
+   di tolleranza MG_ANTI_TOL. Un tocco anticipato prima dell'ultimo pallino, o nessun tocco entro la
+   finestra, vale come scarto massimo (2000ms, il tetto della scala di velocita'). */
+const MG_ANTI_N=6, MG_ANTI_TOL=250;
+let MG_A={i:0,gen:0,deltas:[],correctCount:0,answered:false,targetTime:0,timer:null};
+function mgAntiIntro(){
+  mgCSS(); mgBump();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-stopwatch" style="color:var(--brand)"></i> Anticipazione</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">I pallini in fila si accendono uno dopo l'altro, sempre più veloci. Tocca lo schermo esattamente quando si accende l'ULTIMO, non prima e non dopo. 5 round.</p>
+      <button class="btn btn-accent" style="width:100%" onclick="mgAntiStart()"><i class="fa-solid fa-play"></i> Inizia</button>
+    </div>`);
+}
+function mgAntiStart(){ mgBump(); MG_A={i:0,gen:MG_GEN,deltas:[],correctCount:0,answered:false,targetTime:0,timer:null}; mgAntiRound(); }
+function mgAntiRenderStage(){
+  const dots=Array.from({length:MG_ANTI_N},(_,i)=>`<div class="mg-anti-dot" id="mg-a-d${i}"></div>`).join('');
+  document.getElementById('modal').innerHTML=`<div class="modal-head"><h3><i class="fa-solid fa-stopwatch" style="color:var(--brand)"></i> Anticipazione <span style="color:var(--muted);font-size:.76rem;margin-left:6px" class="num" id="mg-a-count">1/5</span></h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-stage" onclick="mgAntiTap()"><div class="mg-anti-row">${dots}</div></div>
+      <p style="text-align:center;color:var(--muted-2);font-size:.8rem">Tocca quando si accende l'ultimo pallino</p>
+    </div>`;
+}
+function mgAntiRound(){
+  if(MG_A.gen!==MG_GEN) return;
+  if(MG_A.i>=5){ mgAntiResult(); return; }
+  mgAntiRenderStage();
+  const cEl=document.getElementById('mg-a-count'); if(cEl) cEl.textContent=`${MG_A.i+1}/5`;
+  MG_A.answered=false; MG_A.targetTime=0;
+  const interval=Math.max(140,280-MG_A.i*25), myGen=MG_GEN;
+  let step=-1;
+  const lightNext=()=>{
+    if(myGen!==MG_GEN) return;
+    if(step>=0){ const prev=document.getElementById('mg-a-d'+step); if(prev) prev.classList.remove('on'); }
+    step++;
+    if(step>=MG_ANTI_N) return;
+    const dot=document.getElementById('mg-a-d'+step); if(dot) dot.classList.add('on');
+    if(step===MG_ANTI_N-1){
+      MG_A.targetTime=performance.now();
+      MG_A.timer=setTimeout(()=>{
+        if(myGen!==MG_GEN || MG_A.answered) return;
+        MG_A.answered=true;
+        MG_A.deltas.push(2000);
+        MG_A.i++; setTimeout(()=>{ if(myGen===MG_GEN) mgAntiRound(); },350);
+      },1000);
+    } else {
+      setTimeout(lightNext,interval);
+    }
+  };
+  setTimeout(lightNext,500);
+}
+function mgAntiTap(){
+  if(MG_A.answered) return;
+  if(MG_A.targetTime===0){
+    MG_A.answered=true;
+    MG_A.deltas.push(2000);
+    MG_A.i++; const g=MG_A.gen; setTimeout(()=>{ if(g===MG_GEN) mgAntiRound(); },350);
+    return;
+  }
+  MG_A.answered=true;
+  clearTimeout(MG_A.timer);
+  const raw=Math.abs(performance.now()-MG_A.targetTime);
+  const delta=Math.min(2000,mgCorrect(raw));
+  MG_A.deltas.push(delta);
+  if(delta<=MG_ANTI_TOL) MG_A.correctCount++;
+  MG_A.i++;
+  const g=MG_A.gen; setTimeout(()=>{ if(g===MG_GEN) mgAntiRound(); },350);
+}
+function mgAntiResult(){
+  const avgTime=mgAvg(MG_A.deltas);
+  const accuracy=Math.round(MG_A.correctCount/5*100);
+  const speed=mgSpeedScore(avgTime), rating=mgRating(speed,accuracy);
+  const entry={date:new Date().toISOString(),avgTime,accuracy,rating};
+  const pbBefore=mgBestOf(MG.anticipation);
+  MG.anticipation.push(entry); mgSave();
+  const isNewPB=pbBefore!=null && rating>(pbBefore.rating!=null?pbBefore.rating:-1);
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.anticipation,e=>`<span>${fmt(e.date)}</span><span>${e.rating!=null?e.rating+' pt · ':''}${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms scarto':'—'}</span>`);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-stopwatch" style="color:var(--brand)"></i> Anticipazione</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-result"><div class="big num">${rating} pt</div><div style="color:var(--muted)">Precisione: ${accuracy}% (tolleranza ±${MG_ANTI_TOL}ms) · Scarto medio: ${avgTime!=null?avgTime+' ms':'—'}</div>
+      <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgAntiIntro()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
+      <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
+    </div>`);
+}
+
+/* ---------- GIOCO 8: Filtra il rumore (Flanker/Arrow Chaos, categoria Percezione) ---------- */
+let MG_F={i:0,gen:0,correct:0,times:[],centerDir:null,t0:0};
+function mgFlankerIntro(){
+  mgCSS(); mgBump();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-arrows-left-right" style="color:var(--brand)"></i> Filtra il rumore</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">5 frecce in fila: guarda SOLO quella centrale e tocca la direzione in cui punta, ignorando le altre. 10 stimoli.</p>
+      <button class="btn btn-accent" style="width:100%" onclick="mgFlankerStart()"><i class="fa-solid fa-play"></i> Inizia</button>
+    </div>`);
+}
+function mgFlankerStart(){ mgBump(); MG_F={i:0,gen:MG_GEN,correct:0,times:[],centerDir:null,t0:0}; mgFlankerRound(); }
+function mgFlankerRound(){
+  if(MG_F.gen!==MG_GEN) return;
+  if(MG_F.i>=10){ mgFlankerResult(); return; }
+  const centerDir=Math.random()<0.5?'L':'R';
+  const congruent=Math.random()<0.5;
+  const flankDir=congruent?centerDir:(centerDir==='L'?'R':'L');
+  const glyph=d=>d==='L'?'←':'→';
+  const rowHtml=`<span>${glyph(flankDir)}</span><span>${glyph(flankDir)}</span><span class="ctr">${glyph(centerDir)}</span><span>${glyph(flankDir)}</span><span>${glyph(flankDir)}</span>`;
+  MG_F.centerDir=centerDir;
+  document.getElementById('modal').innerHTML=`<div class="modal-head"><h3><i class="fa-solid fa-arrows-left-right" style="color:var(--brand)"></i> Filtra il rumore <span style="color:var(--muted);font-size:.76rem;margin-left:6px" class="num">${MG_F.i+1}/10</span></h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-stage"><div class="mg-flanker-row">${rowHtml}</div></div>
+      <div class="mg-choices">
+        <button class="mg-choice" style="background:var(--surface-3);color:var(--text)" onclick="mgFlankerAnswer('L')">SINISTRA</button>
+        <button class="mg-choice" style="background:var(--surface-3);color:var(--text)" onclick="mgFlankerAnswer('R')">DESTRA</button>
+      </div>
+    </div>`;
+  MG_F.t0=performance.now();
+}
+function mgFlankerAnswer(dir){
+  if(MG_F.gen!==MG_GEN) return;
+  const raw=performance.now()-MG_F.t0;
+  if(dir===MG_F.centerDir){ MG_F.correct++; MG_F.times.push(mgCorrect(raw)); }
+  MG_F.i++; mgFlankerRound();
+}
+function mgFlankerResult(){
+  const accuracy=Math.round(MG_F.correct/10*100);
+  const avgTime=mgAvg(MG_F.times);
+  const speed=mgSpeedScore(avgTime), rating=mgRating(speed,accuracy);
+  const entry={date:new Date().toISOString(),avgTime,accuracy,rating};
+  const pbBefore=mgBestOf(MG.flanker);
+  MG.flanker.push(entry); mgSave();
+  const isNewPB=pbBefore!=null && rating>(pbBefore.rating!=null?pbBefore.rating:-1);
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.flanker,e=>`<span>${fmt(e.date)}</span><span>${e.rating!=null?e.rating+' pt · ':''}${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}</span>`);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-arrows-left-right" style="color:var(--brand)"></i> Filtra il rumore</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-result"><div class="big num">${rating} pt</div><div style="color:var(--muted)">Precisione: ${accuracy}% · Tempo medio: ${avgTime!=null?avgTime+' ms':'—'}</div>
+      <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgFlankerStart()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
+      <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
+    </div>`);
+}
+
+/* ---------- GIOCO 9: Colpo d'occhio (Fast Count/Subitizing, categoria Percezione) ---------- */
+let MG_SU={i:0,gen:0,correct:0,times:[],majorityIdx:null,colA:0,colB:1,t0:0};
+function mgSubitizeIntro(){
+  mgCSS(); mgBump();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-braille" style="color:var(--brand)"></i> Colpo d'occhio</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">Per una frazione di secondo vedrai un gruppo di pallini di 2 colori: indovina quale colore era prevalente. 10 round.</p>
+      <button class="btn btn-accent" style="width:100%" onclick="mgSubitizeStart()"><i class="fa-solid fa-play"></i> Inizia</button>
+    </div>`);
+}
+function mgSubitizeStart(){ mgBump(); MG_SU={i:0,gen:MG_GEN,correct:0,times:[],majorityIdx:null,colA:0,colB:1,t0:0}; mgSubitizeRound(); }
+function mgSubitizeRound(){
+  if(MG_SU.gen!==MG_GEN) return;
+  if(MG_SU.i>=10){ mgSubitizeResult(); return; }
+  let colA=Math.floor(Math.random()*MG_COLORS.length), colB=Math.floor(Math.random()*MG_COLORS.length);
+  while(colB===colA) colB=Math.floor(Math.random()*MG_COLORS.length);
+  MG_SU.colA=colA; MG_SU.colB=colB;
+  const total=12+Math.floor(Math.random()*8);
+  const majorityCount=Math.ceil(total*0.6), minorityCount=total-majorityCount;
+  const majorityIsA=Math.random()<0.5;
+  MG_SU.majorityIdx=majorityIsA?colA:colB;
+  const countA=majorityIsA?majorityCount:minorityCount, countB=total-countA;
+  const dots=[];
+  for(let k=0;k<countA;k++) dots.push(colA);
+  for(let k=0;k<countB;k++) dots.push(colB);
+  const dotsHtml=dots.map(ci=>{
+    const x=8+Math.random()*84, y=8+Math.random()*84;
+    return `<div class="d" style="left:${x}%;top:${y}%;background:${MG_COLORS[ci][1]}"></div>`;
+  }).join('');
+  document.getElementById('modal').innerHTML=`<div class="modal-head"><h3><i class="fa-solid fa-braille" style="color:var(--brand)"></i> Colpo d'occhio <span style="color:var(--muted);font-size:.76rem;margin-left:6px" class="num">${MG_SU.i+1}/10</span></h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-stage" id="mg-su-stage"><div class="mg-dotfield" id="mg-su-field">${dotsHtml}</div></div>
+      <div class="mg-choices">
+        <button class="mg-choice" id="mg-su-a" style="background:${MG_COLORS[colA][1]}" disabled onclick="mgSubitizeAnswer(${colA})">${MG_COLORS[colA][0]}</button>
+        <button class="mg-choice" id="mg-su-b" style="background:${MG_COLORS[colB][1]}" disabled onclick="mgSubitizeAnswer(${colB})">${MG_COLORS[colB][0]}</button>
+      </div>
+    </div>`;
+  const myGen=MG_GEN;
+  MG_SU.t0=performance.now();
+  setTimeout(()=>{
+    if(myGen!==MG_GEN) return;
+    const field=document.getElementById('mg-su-field'); if(field) field.style.visibility='hidden';
+    const a=document.getElementById('mg-su-a'), b=document.getElementById('mg-su-b');
+    if(a) a.disabled=false; if(b) b.disabled=false;
+  },300);
+}
+function mgSubitizeAnswer(colIdx){
+  if(MG_SU.gen!==MG_GEN) return;
+  const raw=performance.now()-MG_SU.t0;
+  if(colIdx===MG_SU.majorityIdx){ MG_SU.correct++; MG_SU.times.push(mgCorrect(raw)); }
+  MG_SU.i++; mgSubitizeRound();
+}
+function mgSubitizeResult(){
+  const accuracy=Math.round(MG_SU.correct/10*100);
+  const avgTime=mgAvg(MG_SU.times);
+  const speed=mgSpeedScore(avgTime), rating=mgRating(speed,accuracy);
+  const entry={date:new Date().toISOString(),avgTime,accuracy,rating};
+  const pbBefore=mgBestOf(MG.subitize);
+  MG.subitize.push(entry); mgSave();
+  const isNewPB=pbBefore!=null && rating>(pbBefore.rating!=null?pbBefore.rating:-1);
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.subitize,e=>`<span>${fmt(e.date)}</span><span>${e.rating!=null?e.rating+' pt · ':''}${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms':'—'}</span>`);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-braille" style="color:var(--brand)"></i> Colpo d'occhio</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-result"><div class="big num">${rating} pt</div><div style="color:var(--muted)">Precisione: ${accuracy}% · Tempo medio: ${avgTime!=null?avgTime+' ms':'—'}</div>
+      <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgSubitizeStart()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
+      <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
+    </div>`);
+}
+
+/* ---------- GIOCO 10: Memoria spaziale (Spatial Memory Grid, categoria Percezione) ----------
+   "tempo" della formula A = tempo medio per tocco (tempo totale di input diviso la lunghezza della
+   sequenza), cosi' resta comparabile alla scala 150-2000ms usata per tutti gli altri giochi invece
+   del tempo totale (che con 4-5 tocchi supererebbe quasi sempre il tetto della scala). */
+let MG_SP={round:0,gen:0,seq:[],input:[],phase:'idle',inputStart:0,accSum:0,timeSum:0,timeCount:0};
+function mgSpatialIntro(){
+  mgCSS(); mgBump();
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-table-cells" style="color:var(--brand)"></i> Memoria spaziale</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.88rem">Una sequenza di caselle si illumina in rapida successione: ritoccale nello stesso ordine, il più veloce possibile. 5 round.</p>
+      <button class="btn btn-accent" style="width:100%" onclick="mgSpatialStart()"><i class="fa-solid fa-play"></i> Inizia</button>
+    </div>`);
+}
+function mgSpatialStart(){ mgBump(); MG_SP={round:0,gen:MG_GEN,seq:[],input:[],phase:'idle',inputStart:0,accSum:0,timeSum:0,timeCount:0}; mgSpatialRound(); }
+function mgSpatialRenderStage(){
+  const cells=Array.from({length:16},(_,i)=>`<div class="mg-cell4" id="mg-sp-c${i}" onclick="mgSpatialTap(${i})"></div>`).join('');
+  document.getElementById('modal').innerHTML=`<div class="modal-head"><h3><i class="fa-solid fa-table-cells" style="color:var(--brand)"></i> Memoria spaziale <span style="color:var(--muted);font-size:.76rem;margin-left:6px" class="num" id="mg-sp-count">1/5</span></h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-grid4">${cells}</div>
+      <p style="text-align:center;color:var(--muted-2);font-size:.8rem" id="mg-sp-hint">Guarda la sequenza…</p>
+    </div>`;
+}
+function mgSpatialRound(){
+  if(MG_SP.gen!==MG_GEN) return;
+  if(MG_SP.round>=5){ mgSpatialResult(); return; }
+  mgSpatialRenderStage();
+  const cEl=document.getElementById('mg-sp-count'); if(cEl) cEl.textContent=`${MG_SP.round+1}/5`;
+  const len=4+(MG_SP.round%2);
+  const seq=[]; while(seq.length<len){ const c=Math.floor(Math.random()*16); if(!seq.includes(c)) seq.push(c); }
+  MG_SP.seq=seq; MG_SP.input=[]; MG_SP.phase='showing';
+  const myGen=MG_GEN;
+  seq.forEach((c,idx)=>{
+    setTimeout(()=>{
+      if(myGen!==MG_GEN) return;
+      const el=document.getElementById('mg-sp-c'+c); if(el) el.classList.add('on');
+      setTimeout(()=>{ if(myGen===MG_GEN && el) el.classList.remove('on'); },350);
+    },600+idx*500);
+  });
+  setTimeout(()=>{
+    if(myGen!==MG_GEN) return;
+    MG_SP.phase='input'; MG_SP.inputStart=performance.now();
+    const hint=document.getElementById('mg-sp-hint'); if(hint) hint.textContent='Ora tocca le caselle nello stesso ordine';
+  },600+seq.length*500);
+}
+function mgSpatialTap(cellId){
+  if(MG_SP.phase!=='input') return;
+  const el=document.getElementById('mg-sp-c'+cellId); if(el) el.classList.add('tapped');
+  MG_SP.input.push(cellId);
+  if(MG_SP.input.length>=MG_SP.seq.length){
+    MG_SP.phase='done';
+    const totalRaw=performance.now()-MG_SP.inputStart;
+    const avgTapRaw=totalRaw/MG_SP.seq.length;
+    const avgTapCorrected=mgCorrect(avgTapRaw);
+    let matches=0; for(let k=0;k<MG_SP.seq.length;k++){ if(MG_SP.input[k]===MG_SP.seq[k]) matches++; }
+    const roundAcc=Math.round(matches/MG_SP.seq.length*100);
+    MG_SP.accSum+=roundAcc; MG_SP.timeSum+=avgTapCorrected; MG_SP.timeCount++;
+    MG_SP.round++;
+    const g=MG_SP.gen; setTimeout(()=>{ if(g===MG_GEN) mgSpatialRound(); },600);
+  }
+}
+function mgSpatialResult(){
+  const accuracy=Math.round(MG_SP.accSum/5);
+  const avgTime=MG_SP.timeCount?Math.round(MG_SP.timeSum/MG_SP.timeCount):null;
+  const speed=mgSpeedScore(avgTime), rating=mgRating(speed,accuracy);
+  const entry={date:new Date().toISOString(),avgTime,accuracy,rating};
+  const pbBefore=mgBestOf(MG.spatial);
+  MG.spatial.push(entry); mgSave();
+  const isNewPB=pbBefore!=null && rating>(pbBefore.rating!=null?pbBefore.rating:-1);
+  const pbMsg=pbBefore==null?'Primo tentativo registrato! Diventa il tuo punto di partenza.':(isNewPB?'🎉 Nuovo personal best!':`Personal best: ${mgPbLabel(pbBefore)}`);
+  const histHtml=mgHistRows(MG.spatial,e=>`<span>${fmt(e.date)}</span><span>${e.rating!=null?e.rating+' pt · ':''}${e.accuracy}% · ${e.avgTime!=null?e.avgTime+' ms/tocco':'—'}</span>`);
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-table-cells" style="color:var(--brand)"></i> Memoria spaziale</h3>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <div class="mg-result"><div class="big num">${rating} pt</div><div style="color:var(--muted)">Precisione sequenza: ${accuracy}% · Tempo medio per tocco: ${avgTime!=null?avgTime+' ms':'—'}</div>
+      <div style="color:var(--muted);margin-top:6px">${pbMsg}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-accent" style="flex:1" onclick="mgSpatialIntro()"><i class="fa-solid fa-rotate-right"></i> Riprova</button>
       <button class="btn btn-ghost" style="flex:1" onclick="mgOpen()"><i class="fa-solid fa-arrow-left"></i> Mental Gym</button></div>
       <div class="mg-hist"><b style="font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ultimi tentativi</b>${histHtml}</div>
     </div>`);
