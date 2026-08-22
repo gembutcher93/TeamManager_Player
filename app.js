@@ -3,7 +3,7 @@
    Importa un "pacchetto profilo" generato dall'app del coach.
    ========================================================= */
 'use strict';
-const APP_VERSION='1.11.0';
+const APP_VERSION='1.12.0';
 const LS='vtm_player_db';
 const MONTHS=['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
 const today=()=>new Date(new Date().toDateString());
@@ -275,6 +275,97 @@ function toast(msg,type='success'){
     el.innerHTML=`<i class="fa-solid ${type==='danger'?'fa-circle-xmark':'fa-circle-check'}"></i><span>${msg}</span>`;
     s.appendChild(el);setTimeout(()=>{el.style.opacity='0';setTimeout(()=>el.remove(),300);},3000);
 }
+
+/* =========================================================
+   INTRO — animazione di apertura sport-aware (Modulo M+Bis+Ter)
+   Il campo si disegna da solo (stroke-dashoffset), poi zoom verso il centro,
+   alone che pulsa 2-3 volte con intensità crescente, esplosione (whoosh) e
+   logo (chime). ~1.65s totali, saltabile con un tap, una sola volta per apertura.
+   Il contenitore #pl-intro è già nel markup statico di index.html (appare subito);
+   qui costruiamo solo il contenuto sport-aware e orchestriamo le fasi.
+   ========================================================= */
+function plIntroSport(){
+  /* A differenza di sportOf() (che ha un fallback silenzioso a 'pallavolo' per il
+     rendering normale dell'app), qui vogliamo sapere se lo sport è stato DAVVERO
+     scelto dall'atleta: se S.pkg.sport non è impostato (primissimo avvio, o demo
+     iniziale prima che l'onboarding lo imposti) ritorniamo null → campo neutro. */
+  try{ if(S && S.pkg && S.pkg.sport && SPORTS_P[S.pkg.sport]) return S.pkg.sport; }catch(e){}
+  return null;
+}
+function plIntroCourtHTML(sport){
+  const STAG=35; // ms tra un tratto e il successivo
+  const c='rgba(255,255,255,.85)';
+  let shapes;
+  if(sport==='pallavolo'){
+    shapes=[
+      `<rect x="6" y="6" width="388" height="188" stroke="#22C55E" stroke-width="2.5" pathLength="1"/>`,
+      `<line x1="200" y1="6" x2="200" y2="194" stroke="#22C55E" stroke-width="3" pathLength="1"/>`,
+      `<line x1="135" y1="6" x2="135" y2="194" stroke="#22C55E" stroke-width="1.4" pathLength="1"/>`,
+      `<line x1="265" y1="6" x2="265" y2="194" stroke="#22C55E" stroke-width="1.4" pathLength="1"/>`
+    ];
+  } else if(sport==='calcio'){
+    shapes=[
+      `<rect x="6" y="6" width="388" height="188" stroke="${c}" stroke-width="2.5" pathLength="1"/>`,
+      `<line x1="200" y1="6" x2="200" y2="194" stroke="${c}" stroke-width="2" pathLength="1"/>`,
+      `<circle cx="200" cy="100" r="34" stroke="${c}" stroke-width="2" pathLength="1"/>`,
+      `<rect x="6" y="55" width="58" height="90" stroke="${c}" stroke-width="2" pathLength="1"/>`,
+      `<rect x="336" y="55" width="58" height="90" stroke="${c}" stroke-width="2" pathLength="1"/>`
+    ];
+  } else if(sport==='basket'){
+    shapes=[
+      `<rect x="6" y="6" width="388" height="188" stroke="${c}" stroke-width="2.5" pathLength="1"/>`,
+      `<line x1="200" y1="6" x2="200" y2="194" stroke="${c}" stroke-width="2" pathLength="1"/>`,
+      `<circle cx="200" cy="100" r="26" stroke="${c}" stroke-width="2" pathLength="1"/>`,
+      `<rect x="6" y="64" width="74" height="72" stroke="${c}" stroke-width="2" pathLength="1"/>`,
+      `<rect x="320" y="64" width="74" height="72" stroke="${c}" stroke-width="2" pathLength="1"/>`,
+      `<path d="M80 64 A36 36 0 0 1 80 136" stroke="${c}" stroke-width="2" pathLength="1"/>`,
+      `<path d="M320 64 A36 36 0 0 0 320 136" stroke="${c}" stroke-width="2" pathLength="1"/>`
+    ];
+  } else {
+    /* fallback primo avvio: nessuno sport ancora scelto — rettangolo + linea centrale,
+       l'elemento comune a tutti i campi, con lo stesso identico effetto di disegno */
+    shapes=[
+      `<rect x="6" y="6" width="388" height="188" stroke="${c}" stroke-width="2.5" pathLength="1"/>`,
+      `<line x1="200" y1="6" x2="200" y2="194" stroke="${c}" stroke-width="2" pathLength="1"/>`
+    ];
+  }
+  const withDelay=shapes.map((s,i)=>s.replace('/>',` style="transition-delay:${(i*STAG/1000).toFixed(3)}s"/>`));
+  return `<svg class="pi-court" viewBox="0 0 400 200" preserveAspectRatio="xMidYMid meet">${withDelay.join('')}</svg>`;
+}
+function plIntroRun(){
+  const stageEl=document.getElementById('pl-intro-stage'), rootEl=document.getElementById('pl-intro');
+  if(!stageEl||!rootEl) return;
+  const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const sport = plIntroSport();
+  stageEl.innerHTML = plIntroCourtHTML(sport)+
+    `<div class="pi-halo"></div><div class="pi-burst"></div>`+
+    `<img class="pi-logo" src="icons/logo-badge.png" alt="">`;
+
+  const timers=[]; let hidden=false;
+  const at=(ms,fn)=>timers.push(setTimeout(fn,ms));
+  function hide(){
+    if(hidden) return; hidden=true;
+    timers.forEach(clearTimeout);
+    rootEl.classList.add('pi-hide');
+    setTimeout(()=>{ if(rootEl&&rootEl.parentNode) rootEl.parentNode.removeChild(rootEl); },380);
+  }
+  rootEl.addEventListener('click',()=>{ if(window.SoundKit) SoundKit.unlock(); hide(); },{once:true});
+
+  if(reduced){
+    stageEl.querySelectorAll('.pi-court>*').forEach(el=>{ el.style.transitionDelay='0s'; });
+    stageEl.classList.add('pi-draw','pi-logo-in');
+    at(550,hide);
+    return;
+  }
+  at(10, ()=>stageEl.classList.add('pi-draw'));
+  at(650, ()=>stageEl.classList.add('pi-zoom'));
+  at(850, ()=>stageEl.classList.add('pi-pulse'));
+  at(1230, ()=>{ stageEl.classList.add('pi-explode','pi-logo-in'); if(window.SoundKit) SoundKit.playWhoosh(); });
+  at(1380, ()=>{ if(window.SoundKit) SoundKit.playChime(); });
+  at(1650, hide);
+}
+plIntroRun();
+document.addEventListener('pointerdown',function unlockAudioOnce(){ if(window.SoundKit) SoundKit.unlock(); document.removeEventListener('pointerdown',unlockAudioOnce); },{once:true});
 
 renderAll();
 if(S.onboard) showOnboarding();

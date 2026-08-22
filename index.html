@@ -185,40 +185,48 @@
     .empty-state i{font-size:2.2rem;color:var(--surface-3);display:block;margin-bottom:.6rem;}
     .link-btn{background:none;border:none;color:var(--brand);font-weight:700;cursor:pointer;text-decoration:underline;font-size:.85rem;}
 
-    /* SPLASH — animazione di apertura app, max ~1.3s totali, saltabile con un tap.
-       Nota: la scomparsa usa una transition attivata da JS (classe .pl-hide), non una
-       @keyframes ...forwards: la regola globale reduced-motion qui sopra forza
-       animation:none!important, che farebbe restare lo splash bloccato per sempre se la
-       scomparsa dipendesse da un'animazione. Con una transition invece, reduced-motion la
-       rende istantanea (transition:none!important) ma il cambio di stato avviene comunque. */
-    #pl-splash{position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;
+    /* INTRO — animazione di apertura sport-aware (Modulo M): il campo si disegna da solo,
+       zoom verso il centro, alone che pulsa 2-3 volte, esplosione, logo. ~1.5-1.8s totali.
+       Saltabile con un tap. Il contenitore appare subito (puro CSS): il contenuto sport-aware
+       viene iniettato da app.js appena lo stato del profilo è disponibile (plIntroRun()).
+       Nota accessibilità: la SCOMPARSA usa una transition (classe .pi-hide), non una
+       @keyframes ...forwards — la regola globale reduced-motion qui sopra forza
+       animation:none!important, che lascerebbe l'overlay bloccato per sempre se la scomparsa
+       dipendesse da un'animazione; con una transition invece resta reattiva (istantanea sotto
+       reduced-motion) e il cambio di stato avviene comunque. */
+    #pl-intro{position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;overflow:hidden;
         background:radial-gradient(1100px 700px at 80% -10%,rgba(34,197,94,.18),transparent 60%),radial-gradient(900px 600px at 0% 110%,rgba(91,155,255,.12),transparent 55%),linear-gradient(170deg,#0C1526,#060A18 60%);
-        cursor:pointer;opacity:1;transition:opacity .3s ease;}
-    #pl-splash.pl-hide{opacity:0;pointer-events:none;}
-    .pl-splash-inner{display:flex;flex-direction:column;align-items:center;gap:12px;}
-    .pl-splash-logo{width:96px;height:96px;border-radius:24px;box-shadow:0 20px 46px -14px rgba(0,0,0,.7);
-        animation:pl-splash-pop .5s cubic-bezier(.2,.8,.2,1) both, pl-splash-pulse 1.8s ease-in-out .5s infinite;}
-    @keyframes pl-splash-pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
-    @keyframes pl-splash-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
-    .pl-splash-word{font-family:'Outfit',sans-serif;font-weight:800;font-size:1.3rem;letter-spacing:1px;opacity:0;color:var(--text);
-        animation:pl-splash-word-in .4s ease .25s forwards;}
-    .pl-splash-word span{color:var(--brand);}
-    @keyframes pl-splash-word-in{to{opacity:1;}}
+        cursor:pointer;opacity:1;transition:opacity .32s ease;}
+    #pl-intro.pi-hide{opacity:0;pointer-events:none;}
+    #pl-intro-stage{position:relative;width:min(74vw,320px);aspect-ratio:2/1;display:flex;align-items:center;justify-content:center;
+        transition:transform .22s cubic-bezier(.3,.7,.2,1);}
+    #pl-intro-stage.pi-zoom{transform:scale(1.6);}
+    .pi-court{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
+    .pi-court>*{fill:none;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;transition:stroke-dashoffset .46s cubic-bezier(.25,.65,.3,1);}
+    #pl-intro-stage.pi-draw .pi-court>*{stroke-dashoffset:0;}
+    .pi-halo{position:absolute;left:50%;top:50%;width:40px;height:40px;border-radius:50%;transform:translate(-50%,-50%) scale(0);opacity:0;
+        background:radial-gradient(circle,rgba(34,197,94,.55),rgba(34,197,94,0) 70%);pointer-events:none;}
+    #pl-intro-stage.pi-pulse .pi-halo{animation:pi-halo-pulse .4s cubic-bezier(.3,.6,.3,1) both;}
+    @keyframes pi-halo-pulse{
+        0%{transform:translate(-50%,-50%) scale(0);opacity:0;}
+        18%{transform:translate(-50%,-50%) scale(2.1);opacity:.55;}
+        34%{transform:translate(-50%,-50%) scale(1.15);opacity:.15;}
+        55%{transform:translate(-50%,-50%) scale(3.3);opacity:.65;}
+        72%{transform:translate(-50%,-50%) scale(1.5);opacity:.15;}
+        90%{transform:translate(-50%,-50%) scale(4.4);opacity:.7;}
+        100%{transform:translate(-50%,-50%) scale(1);opacity:0;}
+    }
+    .pi-burst{position:absolute;left:50%;top:50%;width:16px;height:16px;border-radius:50%;transform:translate(-50%,-50%) scale(0);opacity:0;
+        background:radial-gradient(circle,#fff,var(--brand) 40%,rgba(34,197,94,0) 72%);pointer-events:none;}
+    #pl-intro-stage.pi-explode .pi-burst{animation:pi-burst .48s cubic-bezier(.15,.8,.25,1) both;}
+    @keyframes pi-burst{0%{transform:translate(-50%,-50%) scale(0);opacity:1;}55%{transform:translate(-50%,-50%) scale(9);opacity:.8;}100%{transform:translate(-50%,-50%) scale(15);opacity:0;}}
+    .pi-logo{position:relative;z-index:2;width:72px;height:72px;border-radius:18px;opacity:0;transform:scale(.7);
+        box-shadow:0 16px 40px -12px rgba(0,0,0,.7);transition:opacity .36s ease,transform .36s cubic-bezier(.2,.8,.2,1);}
+    #pl-intro-stage.pi-logo-in .pi-logo{opacity:1;transform:scale(1);}
     </style>
 </head>
 <body>
-<div id="pl-splash"><div class="pl-splash-inner"><img src="icons/logo-badge.png" class="pl-splash-logo" alt=""><div class="pl-splash-word">Ai<span>RIM</span></div></div></div>
-<script>(function(){
-    var el=document.getElementById('pl-splash'); if(!el) return;
-    var hidden=false;
-    function hide(){
-        if(hidden) return; hidden=true;
-        el.classList.add('pl-hide');
-        setTimeout(function(){ if(el&&el.parentNode) el.parentNode.removeChild(el); },350);
-    }
-    el.addEventListener('click',hide,{once:true});
-    setTimeout(hide,1000);
-})();</script>
+<div id="pl-intro"><div id="pl-intro-stage"></div></div>
 <div id="toast-stack"></div>
 <header class="appbar">
     <img src="icons/logo-badge.png" alt="">
@@ -251,6 +259,7 @@
 
 <div class="overlay" id="modal-overlay"><div class="modal" id="modal"></div></div>
 
+<script src="soundkit.js"></script>
 <script src="app.js"></script>
     <script src="marquee.js"></script>
 </body>
