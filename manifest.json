@@ -1,21 +1,42 @@
 {
-  "name": "AIRIM Polisport",
-  "short_name": "AIRIM",
-  "description": "Gestionale completo per allenatori di pallavolo, calcio e basket: roster, calendario, scout statistico per partite e allenamenti, formazione consigliata in base alle statistiche, libreria allenamenti più possibilità di creare i propri e lavagnetta tattica.",
+  "name": "AiRIM Player",
+  "short_name": "AiRIM",
+  "description": "L'app del giocatore: le tue statistiche, il calendario, gli allenamenti e i progressi.",
   "lang": "it",
-  "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "id": "/",
   "display": "standalone",
-  "orientation": "any",
-  "background_color": "#020617",
-  "theme_color": "#020617",
-  "categories": ["sports", "productivity"],
+  "orientation": "portrait",
+  "background_color": "#060A18",
+  "theme_color": "#060A18",
+  "categories": [
+    "sports"
+  ],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
