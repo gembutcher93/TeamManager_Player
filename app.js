@@ -73,7 +73,7 @@ function applyPkg(pkg){
     /* badgeSeen/cardTransform/badgeSlots sono personalizzazioni del giocatore sul
        dispositivo: sopravvivono a un nuovo pacchetto ricevuto dal mister, non fanno
        parte dei dati che il mister invia. */
-    const keep={badgeSeen:S.badgeSeen, badgeSeenInit:S.badgeSeenInit, cardTransform:S.cardTransform, badgeSlots:S.badgeSlots};
+    const keep={badgeSeen:S.badgeSeen, badgeSeenInit:S.badgeSeenInit, badgeUnlockDates:S.badgeUnlockDates, cardTransform:S.cardTransform, badgeSlots:S.badgeSlots};
     S=Object.assign({pkg, self:{}, mine:[], onboard:false}, keep);
     if(pkg.photo){ PL_PHOTO=pkg.photo; idbSet('self',pkg.photo); }
     save(); closeOnboarding(); renderAll(); toast('Profilo caricato: '+pkg.p.name);
@@ -342,10 +342,16 @@ function computeBadgeStates(){
 }
 function checkBadgeUnlocks(){
   if(!S.badgeSeen) S.badgeSeen={};
-  const firstRun=!S.badgeSeenInit, sport=sportOf();
+  if(!S.badgeUnlockDates) S.badgeUnlockDates={};
+  const firstRun=!S.badgeSeenInit, sport=sportOf(), today8=new Date().toISOString().slice(0,10);
   computeBadgeStates().forEach(st=>{
     const key=sport+':'+st.fam.id, prev=S.badgeSeen[key]||0;
-    if(!firstRun && st.level>prev){ const m=BADGE_LEVELS[st.level]; toast(`🏅 ${st.fam.name} — livello ${m.label} sbloccato!`); }
+    if(st.level>prev){
+      /* registriamo la data in cui l'app ha VISTO per la prima volta ogni livello
+         (non necessariamente la data esatta in cui è stato raggiunto in partita) */
+      for(let lv=prev+1; lv<=st.level; lv++) S.badgeUnlockDates[key+':'+lv]=today8;
+      if(!firstRun){ const m=BADGE_LEVELS[st.level]; toast(`🏅 ${st.fam.name} — livello ${m.label} sbloccato!`); }
+    }
     S.badgeSeen[key]=st.level;
   });
   if(firstRun) S.badgeSeenInit=true;
@@ -355,11 +361,21 @@ function badgeFamCSS(){
   if(document.getElementById('badgefam-css'))return;
   const st=document.createElement('style'); st.id='badgefam-css';
   st.textContent=`
+  .badge{cursor:pointer;}
   .badge .lvl-pill{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:20px;font-size:.62rem;font-weight:800;letter-spacing:.4px;text-transform:uppercase;}
   .badge .bf-prog{display:block;font-size:.66rem;color:var(--muted-2);margin-top:4px;}
   .badge-chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--line);color:var(--text);padding:8px 12px;border-radius:20px;font-size:.8rem;font-weight:700;cursor:pointer;font-family:'Urbanist';}
   .badge-chip:disabled{cursor:not-allowed;opacity:.4;filter:grayscale(.6);}
   .badge-chip.on{background:rgba(34,197,94,.14);border-color:var(--brand);}
+  .bd-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line-soft);}
+  .bd-row:last-child{border-bottom:none;}
+  .bd-row.locked{opacity:.45;filter:grayscale(.6);}
+  .bd-ic{width:42px;height:42px;border-radius:50%;background:var(--surface-3);display:flex;align-items:center;justify-content:center;color:#0b1220;font-size:1.1rem;flex-shrink:0;}
+  .bd-row.locked .bd-ic{color:var(--muted-2);}
+  .bd-info{display:flex;flex-direction:column;gap:2px;}
+  .bd-info b{font-size:.92rem;}
+  .bd-th,.bd-date,.bd-remain{font-size:.72rem;color:var(--muted);}
+  .bd-date{color:var(--brand);font-weight:600;}
   `;
   document.head.appendChild(st);
 }
@@ -368,8 +384,31 @@ function renderBadgeFamiliesGrid(){
     const {fam,level,next,remaining}=st, meta=BADGE_LEVELS[level], locked=level===0;
     const lvlPill=meta?`<span class="lvl-pill" style="background:${meta.color}22;color:${meta.color}">${meta.label}</span>`:'';
     const prog=next!=null?`<span class="bf-prog">Mancano ${Math.ceil(remaining)} per il prossimo livello</span>`:`<span class="bf-prog">Livello massimo</span>`;
-    return `<div class="badge ${locked?'locked':'earned'}"><div class="ic" style="${meta?`color:${meta.color}`:''}"><i class="fa-solid ${fam.icon}"></i></div><b>${fam.name}</b>${lvlPill}${prog}</div>`;
+    return `<div class="badge ${locked?'locked':'earned'}" onclick="openBadgeDetail('${fam.id}')"><div class="ic" style="${meta?`color:${meta.color}`:''}"><i class="fa-solid ${fam.icon}"></i></div><b>${fam.name}</b>${lvlPill}${prog}</div>`;
   }).join('');
+}
+/* Fix: popup con la progressione completa di una famiglia badge (tutti e 4 i livelli) */
+function openBadgeDetail(familyId){
+  badgeFamCSS();
+  const sport=sportOf(), fam=(BADGE_FAMILIES[sport]||[]).find(f=>f.id===familyId); if(!fam) return;
+  const value=badgeStatValue(fam), level=badgeLevelFor(value,fam.thresholds);
+  const dates=S.badgeUnlockDates||{};
+  const rows=fam.thresholds.map((th,i)=>{
+    const lv=i+1, meta=BADGE_LEVELS[lv], reached=level>=lv;
+    const dateISO=dates[sport+':'+fam.id+':'+lv];
+    const dateTxt=reached&&dateISO?`<span class="bd-date">Sbloccato il ${fmt(dateISO)}</span>`:'';
+    const remainTxt=!reached&&lv===level+1?`<span class="bd-remain">Mancano ${Math.ceil(th-value)} per sbloccarlo</span>`:'';
+    return `<div class="bd-row ${reached?'reached':'locked'}">
+      <div class="bd-ic" style="${reached?`background:${meta.color}`:''}"><i class="fa-solid ${fam.icon}"></i></div>
+      <div class="bd-info"><b>${meta.label}</b><span class="bd-th">Soglia: ${th}</span>${dateTxt}${remainTxt}</div>
+    </div>`;
+  }).join('');
+  openModal(`<div class="modal-head"><h3><i class="fa-solid ${fam.icon}" style="color:var(--brand)"></i> ${fam.name}</h3>
+      <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:.85rem;margin-bottom:10px">Valore attuale: <b class="num" style="color:var(--brand)">${value}</b></p>
+      ${rows}
+    </div>`);
 }
 
 function renderProgress(){
@@ -761,15 +800,56 @@ function pickPhoto(){
     const rd=new FileReader(); rd.onload=()=>{ const im=new Image(); im.onload=()=>{
       const MAX=1000, r=Math.min(MAX/im.width,MAX/im.height,1), w=Math.round(im.width*r), h=Math.round(im.height*r);
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(im,0,0,w,h);
-      askRemoveBg(cv.toDataURL('image/png'));
+      cropPhoto(cv.toDataURL('image/png'));
     }; im.src=rd.result; };
     rd.readAsDataURL(f);
   };
   inp.click();
 }
-/* Modulo A — invece del vecchio pannello a slider: si chiede solo se rimuovere lo
-   sfondo, poi il posizionamento vero e proprio si fa a mano libera (drag+pinch)
-   direttamente sopra l'anteprima della tier card, in openMyCard(). */
+/* Fix: crop preliminare — prima di chiedere la rimozione sfondo, l'utente sceglie
+   quale porzione della foto ORIGINALE entra nel riquadro (non tagliare la testa).
+   Stesso meccanismo drag+pinch (attachDragPinch) del posizionamento finale sulla
+   card, applicato qui come step preliminare grezzo; la rifinitura fine resta il
+   posizionamento sulla tier card già implementato in Modulo A. */
+function cropPhoto(srcDataURL){
+  plMediaCSS();
+  const F=260;
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-crop-simple" style="color:var(--brand)"></i> Inquadra la foto</h3>
+      <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body" style="text-align:center">
+      <div id="cp-frame" class="rp-checker" style="width:${F}px;height:${F}px;margin:0 auto;border-radius:16px;overflow:hidden;position:relative;touch-action:none;border:2px solid var(--brand)">
+        <img id="cp-img" src="${srcDataURL}" style="position:absolute;width:100%;height:100%;object-fit:cover;left:50%;top:50%;transform:translate(-50%,-50%) scale(1);cursor:grab">
+      </div>
+      <p style="color:var(--muted-2);font-size:.78rem;margin-top:10px">Trascina per spostare, pizzica con due dita per zoomare: scegli l'inquadratura giusta (non tagliare la testa).</p>
+      <button class="btn btn-accent" style="width:100%;margin-top:12px" onclick="confirmCrop()"><i class="fa-solid fa-check"></i> Conferma ritaglio</button>
+    </div>`);
+  const frame=document.getElementById('cp-frame'), img=document.getElementById('cp-img');
+  const state={x:50,y:50,scale:1};
+  attachDragPinch(img, ()=>frame.getBoundingClientRect(), state, {tolerancePct:30}, ()=>{});
+  window.__cp={state,src:srcDataURL,F};
+}
+function confirmCrop(){
+  const C=window.__cp; if(!C){closeModal();return;}
+  const {state,src,F}=C, OUT=640;
+  const im=new Image();
+  im.onload=()=>{
+    const iw=im.naturalWidth, ih=im.naturalHeight;
+    /* stesso sistema (object-fit:cover + translate(-50%,-50%) scale(s) centrato in
+       x%,y%) usato per la foto sulla tier card: replichiamo la matematica inversa
+       per ritagliare esattamente ciò che l'utente vede nel riquadro F×F. */
+    const cover=Math.max(F/iw,F/ih), eff=cover*state.scale;
+    const cx=F*state.x/100, cy=F*state.y/100;
+    const srcW=F/eff, srcH=F/eff;
+    const srcX=(0-cx)/eff+iw/2, srcY=(0-cy)/eff+ih/2;
+    const c=document.createElement('canvas'); c.width=OUT; c.height=OUT;
+    c.getContext('2d').drawImage(im,srcX,srcY,srcW,srcH,0,0,OUT,OUT);
+    window.__cp=null; askRemoveBg(c.toDataURL('image/png'));
+  };
+  im.src=src;
+}
+/* Modulo A — dopo il crop preliminare: si chiede solo se rimuovere lo sfondo, poi
+   il posizionamento fine si fa a mano libera (drag+pinch) direttamente sopra
+   l'anteprima della tier card, in openMyCard(). */
 function askRemoveBg(srcDataURL){
   plMediaCSS(); window.__pp=srcDataURL;
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--brand)"></i> Rimuovere lo sfondo?</h3>
