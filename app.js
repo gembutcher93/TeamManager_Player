@@ -427,6 +427,7 @@ const FRESH_INSTALL = !localStorage.getItem(dbKey()); // nessun dato squadra sal
 let DB = loadDB();
 if(!DB.trainings) DB.trainings = {};
 if(!DB.substitutions) DB.substitutions = {};
+if(!DB.physicalTests) DB.physicalTests = {sprint:[],jump:[]};
 if(!DB.nextId) DB.nextId = Date.now();
 function save(){ localStorage.setItem(dbKey(), JSON.stringify(DB)); }
 function uid(){ return DB.nextId++; }
@@ -829,7 +830,10 @@ function openModal(html,wide){
     m.innerHTML=html;
     document.getElementById('modal-overlay').classList.add('show');
 }
-function closeModal(){ document.getElementById('modal-overlay').classList.remove('show'); }
+function closeModal(){
+    document.getElementById('modal-overlay').classList.remove('show');
+    if(typeof PHYS!=='undefined' && PHYS){ if(PHYS.videoURL) URL.revokeObjectURL(PHYS.videoURL); PHYS=null; }
+}
 
 /* =========================================================
    LAYOUT — costruzione delle sezioni dentro <main>
@@ -1003,6 +1007,34 @@ function buildLayout(){
             </div>
         </div>
     </section>
+
+    <!-- TEST FISICI -->
+    <section id="test-fisici" class="section">
+        <div class="page-head"><div><div class="eyebrow">Preparazione</div><h2>Test Fisici</h2>
+            <p class="sub">Misura sprint, tempo di reazione e salto verticale da un video con telecamera ferma su cavalletto — calibrazione manuale, nessuna intelligenza artificiale.</p></div></div>
+        <div class="phys-grid">
+            <div class="card">
+                <h3><i class="fa-solid fa-person-running"></i> Sprint &amp; Reazione</h3>
+                <p class="hint" style="margin-bottom:.8rem">Tempo di reazione al via e velocità media su una distanza nota, da un video con 3 marcatori (via, partenza, arrivo).</p>
+                <div class="fg"><label>Giocatore</label><select id="phys-sprint-player"></select></div>
+                <button class="btn btn-accent" style="width:100%;margin-top:10px" onclick="openPhysTest('sprint')"><i class="fa-solid fa-stopwatch"></i> Nuovo test Sprint</button>
+            </div>
+            <div class="card">
+                <h3><i class="fa-solid fa-arrow-up-long"></i> Salto Verticale</h3>
+                <p class="hint" style="margin-bottom:.8rem">Altezza del salto dalla differenza fra stacco e massima elevazione, con calibrazione pixel→metri.</p>
+                <div class="fg"><label>Giocatore</label><select id="phys-jump-player"></select></div>
+                <button class="btn btn-accent" style="width:100%;margin-top:10px" onclick="openPhysTest('jump')"><i class="fa-solid fa-ruler-vertical"></i> Nuovo test Salto</button>
+                <p class="hint" style="margin-top:8px" title="Versione base a marcatori manuali. In arrivo (V2) tracking automatico su dispositivi più potenti."><i class="fa-solid fa-circle-info"></i> Versione base a marcatori manuali. In arrivo (V2) tracking automatico.</p>
+            </div>
+        </div>
+        <div class="card">
+            <h3><i class="fa-solid fa-clock-rotate-left"></i> Storico test</h3>
+            <div class="fg" style="max-width:320px"><label>Giocatore</label><select id="phys-hist-player" onchange="renderPhysHistory()"></select></div>
+            <div id="phys-hist" style="margin-top:1rem"></div>
+        </div>
+        <p class="hint">Precisione dipende da stabilità della telecamera, qualità del video e precisione dei marcatori inseriti manualmente. Per misurazioni ufficiali/agonistiche usa strumentazione certificata.</p>
+    </section>
+
     <section id="tattica" class="section">
         <div class="page-head"><div><div class="eyebrow">Spogliatoio</div><h2>Lavagnetta Tattica</h2>
             <p class="sub">Disponi la rotazione trascinando i gettoni e disegna schemi, traiettorie e vettori direttamente sul campo.</p></div></div>
@@ -1088,12 +1120,306 @@ function buildLayout(){
 }
 
 /* =========================================================
+   TEST FISICI V1 (Prompt8, Moduli A+B) — calibrazione manuale
+   pixel→metri + marcatori su frame, nessuna pose detection/AI.
+   Il video non viene MAI salvato (solo un object URL per la
+   sessione corrente): si registra solo il risultato calcolato.
+   NOTA implementativa: lo stepping frame-by-frame usa currentTime
+   ± 1/fps (fps inseribile dall'utente, default 30) invece di
+   requestVideoFrameCallback — più uniforme fra i browser; i tempi
+   salvati vengono comunque letti da video.currentTime al momento
+   del tap, quindi la precisione del risultato non dipende dagli fps.
+   ========================================================= */
+let PHYS=null; // stato del wizard di test in corso
+function physCSS(){
+    if(document.getElementById('phys-css')) return;
+    const st=document.createElement('style'); st.id='phys-css';
+    st.textContent=`
+    .phys-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem;}
+    @media(max-width:720px){.phys-grid{grid-template-columns:1fr;}}
+    .phys-video-wrap{position:relative;width:100%;background:#000;border-radius:12px;overflow:hidden;}
+    .phys-video-wrap video{width:100%;display:block;max-height:60vh;}
+    .phys-video-wrap canvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;}
+    .phys-controls{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;}
+    .phys-note{background:rgba(240,70,60,.1);border:1px solid rgba(240,70,60,.3);border-radius:10px;padding:.7rem .9rem;font-size:.82rem;color:var(--text);display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;}
+    .phys-note i{color:var(--flame);margin-top:2px;}
+    `;
+    document.head.appendChild(st);
+}
+function physDisclaimerHTML(){
+    return `<p class="hint" style="margin-top:14px;font-style:italic">Precisione dipende da stabilità della telecamera, qualità del video e precisione dei marcatori inseriti manualmente. Per misurazioni ufficiali/agonistiche usa strumentazione certificata.</p>`;
+}
+function physCameraNoteHTML(){
+    return `<div class="phys-note"><i class="fa-solid fa-triangle-exclamation"></i> La telecamera deve restare ferma per tutta la ripresa dopo la calibrazione. Se la sposti, ricalibra.</div>`;
+}
+/* ---- rendering sezione + storico ---- */
+function renderPhysicalTests(){
+    physCSS();
+    const opts = DB.players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+    ['phys-sprint-player','phys-jump-player','phys-hist-player'].forEach(id=>{
+        const el=document.getElementById(id); if(!el) return;
+        const prev=el.value;
+        el.innerHTML = DB.players.length ? opts : '<option value="">Nessun giocatore in rosa</option>';
+        if(prev && DB.players.some(p=>String(p.id)===prev)) el.value=prev;
+    });
+    renderPhysHistory();
+}
+function physPlayerTests(pid){
+    return { sprint:(DB.physicalTests.sprint||[]).filter(t=>t.playerId===pid), jump:(DB.physicalTests.jump||[]).filter(t=>t.playerId===pid) };
+}
+function renderPhysHistory(){
+    const sel=document.getElementById('phys-hist-player'), box=document.getElementById('phys-hist');
+    if(!sel||!box) return;
+    const pid=parseInt(sel.value);
+    if(!pid){ box.innerHTML='<div class="empty-state"><i class="fa-solid fa-clock-rotate-left"></i>Aggiungi un giocatore in rosa per registrare test.</div>'; return; }
+    const {sprint,jump}=physPlayerTests(pid);
+    const rowsS=sprint.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).map(t=>
+        `<tr><td>${fmtDate(t.date)}</td><td class="num">${t.tempoReazione.toFixed(3)}s</td><td class="num">${t.tempoSprint.toFixed(3)}s</td><td class="num">${t.distanza}m</td><td class="num">${t.velocitaMedia.toFixed(2)} m/s</td><td class="num">${(t.velocitaMedia*3.6).toFixed(1)} km/h</td></tr>`).join('');
+    const rowsJ=jump.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).map(t=>
+        `<tr><td>${fmtDate(t.date)}</td><td class="num">${t.altezzaSalto} cm</td><td>${t.puntoRiferimentoUsato}</td></tr>`).join('');
+    box.innerHTML=`
+        <h4 style="font-size:.8rem;margin-bottom:6px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Sprint &amp; Reazione</h4>
+        ${sprint.length?`<div class="table-wrap"><table><thead><tr><th>Data</th><th>Reazione</th><th>Sprint</th><th>Distanza</th><th>Vel. media</th><th>Km/h</th></tr></thead><tbody>${rowsS}</tbody></table></div>`:'<p class="hint">Nessun test sprint registrato.</p>'}
+        <h4 style="font-size:.8rem;margin:14px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Salto Verticale</h4>
+        ${jump.length?`<div class="table-wrap"><table><thead><tr><th>Data</th><th>Altezza</th><th>Riferimento</th></tr></thead><tbody>${rowsJ}</tbody></table></div>`:'<p class="hint">Nessun test salto registrato.</p>'}`;
+}
+/* ---- video + canvas overlay condivisi fra tutti gli step ---- */
+function physVideoBlock(){
+    return `<div class="phys-video-wrap"><video id="phys-video" playsinline preload="auto"></video><canvas id="phys-canvas"></canvas></div>
+    <div class="phys-controls">
+        <button type="button" class="btn btn-ghost btn-icon" onclick="physStep(-1)" title="Indietro 1 frame"><i class="fa-solid fa-backward-step"></i></button>
+        <button type="button" class="btn btn-ghost btn-icon" id="phys-playbtn" onclick="physTogglePlay()" title="Play/Pausa"><i class="fa-solid fa-play"></i></button>
+        <button type="button" class="btn btn-ghost btn-icon" onclick="physStep(1)" title="Avanti 1 frame"><i class="fa-solid fa-forward-step"></i></button>
+        <input id="phys-seek" type="range" min="0" max="1000" value="0" step="1" oninput="physSeekFromRange(this.value)" style="flex:1;min-width:120px">
+        <span id="phys-time" class="num" style="min-width:66px;text-align:right;font-size:.8rem;color:var(--muted)">0.000s</span>
+    </div>
+    <div class="fg" style="max-width:170px;margin-top:8px"><label>FPS video (per lo step)</label><input id="phys-fps" type="number" min="1" max="240" value="${PHYS.fps}" onchange="PHYS.fps=parseFloat(this.value)||30"></div>`;
+}
+function physRedraw(){
+    const cv=document.getElementById('phys-canvas'); if(!cv) return;
+    const ctx=cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height);
+    if(PHYS && PHYS.overlayDraw) PHYS.overlayDraw(ctx,cv);
+}
+function physDot(ctx,cv,x,y,color){ ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,Math.max(4,cv.width*0.008),0,Math.PI*2); ctx.fill(); }
+function physUpdateTimeUI(){
+    const v=document.getElementById('phys-video'); if(!v||!PHYS) return;
+    const t=document.getElementById('phys-time'); if(t) t.textContent=v.currentTime.toFixed(3)+'s';
+    const seek=document.getElementById('phys-seek'); if(seek && document.activeElement!==seek) seek.value=Math.round(v.currentTime*1000);
+    PHYS.lastTime=v.currentTime;
+}
+function physSeekFromRange(ms){ const v=document.getElementById('phys-video'); if(!v) return; v.pause(); v.currentTime=ms/1000; }
+function physStep(dir){ const v=document.getElementById('phys-video'); if(!v||!PHYS) return; v.pause(); const dt=1/(PHYS.fps||30); v.currentTime=Math.max(0,Math.min(v.duration||0, v.currentTime+dir*dt)); }
+function physTogglePlay(){ const v=document.getElementById('phys-video'); if(!v) return; if(v.paused) v.play(); else v.pause(); }
+function physInitVideo(onReady, opts){
+    opts=opts||{};
+    const v=document.getElementById('phys-video'), cv=document.getElementById('phys-canvas'), seek=document.getElementById('phys-seek');
+    v.src=PHYS.videoURL;
+    v.addEventListener('loadedmetadata',()=>{
+        cv.width=v.videoWidth; cv.height=v.videoHeight;
+        if(seek) seek.max=Math.round((v.duration||0)*1000);
+        if(PHYS.lastTime) v.currentTime=Math.min(PHYS.lastTime, v.duration||0);
+        physRedraw(); physUpdateTimeUI();
+        if(onReady) onReady();
+    }, {once:true});
+    v.addEventListener('seeked',physRedraw);
+    v.addEventListener('timeupdate',physUpdateTimeUI);
+    v.addEventListener('play',()=>{ const b=document.getElementById('phys-playbtn'); if(b) b.innerHTML='<i class="fa-solid fa-pause"></i>'; });
+    v.addEventListener('pause',()=>{ const b=document.getElementById('phys-playbtn'); if(b) b.innerHTML='<i class="fa-solid fa-play"></i>'; });
+    cv.onclick = opts.onCanvasClick ? (e)=>{
+        const r=cv.getBoundingClientRect();
+        const x=(e.clientX-r.left)*(cv.width/r.width), y=(e.clientY-r.top)*(cv.height/r.height);
+        opts.onCanvasClick(x,y);
+    } : null;
+}
+/* ---- avvio test ---- */
+function openPhysTest(type){
+    const sel=document.getElementById('phys-'+type+'-player');
+    const pid=parseInt(sel&&sel.value);
+    if(!pid){ toast('Scegli un giocatore prima di avviare il test','info'); return; }
+    PHYS={type, playerId:pid, fps:30, calib:{pts:[],pxPerMeter:null}, markers:{}, videoURL:null, overlayDraw:null, lastTime:0};
+    physStepUpload();
+}
+function physStepUpload(){
+    const label = PHYS.type==='sprint' ? 'Sprint &amp; Reazione' : 'Salto Verticale';
+    const p=playerById(PHYS.playerId);
+    openModal(`<div class="modal-head"><h3><i class="fa-solid fa-video" style="color:var(--brand)"></i> Test Fisici · ${label}</h3>
+        <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="modal-body">
+        <p class="hint" style="margin-bottom:10px">Giocatore: <b>${p?p.name:'—'}</b></p>
+        ${physCameraNoteHTML()}
+        <div class="fg"><label>Carica il video del test</label><input type="file" accept="video/*" onchange="physPickVideo(this)"></div>
+        <p class="hint" style="margin-top:8px">Da smartphone puoi anche registrarlo al volo scegliendo la fotocamera dal selettore file.</p>
+        ${physDisclaimerHTML()}
+      </div>`, true);
+}
+function physPickVideo(input){
+    const f=input.files&&input.files[0]; if(!f) return;
+    if(PHYS.videoURL) URL.revokeObjectURL(PHYS.videoURL);
+    PHYS.videoURL=URL.createObjectURL(f);
+    PHYS.calib={pts:[],pxPerMeter:null};
+    physStepCalibrate();
+}
+/* ---- calibrazione (comune ai due moduli) ---- */
+function physStepCalibrate(){
+    openModal(`<div class="modal-head"><h3><i class="fa-solid fa-ruler-combined" style="color:var(--brand)"></i> Calibrazione</h3>
+        <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="modal-body">
+        ${physCameraNoteHTML()}
+        <p class="hint" style="margin-bottom:10px">Scorri al frame in cui vedi un riferimento noto e fermo (rete, muro con nastro, linea di campo), poi tocca i suoi due estremi sul video.</p>
+        ${physVideoBlock()}
+        <div id="phys-calib-form" style="margin-top:12px;display:none">
+            <div class="fg"><label>Distanza reale fra i due punti (metri)</label><input id="phys-calib-dist" type="number" min="0.01" step="0.01" placeholder="Es. 1.00"></div>
+            <button type="button" class="btn btn-accent" style="width:100%;margin-top:8px" onclick="physCalibCompute()"><i class="fa-solid fa-check"></i> Calcola calibrazione</button>
+        </div>
+        <div id="phys-calib-result" style="margin-top:12px"></div>
+      </div>`, true);
+    PHYS.calib.pts=[];
+    PHYS.overlayDraw=(ctx,cv)=>{
+        const pts=PHYS.calib.pts;
+        pts.forEach(pt=>physDot(ctx,cv,pt.x,pt.y,'#22C55E'));
+        if(pts.length===2){ ctx.strokeStyle='#22C55E'; ctx.lineWidth=Math.max(2,cv.width*0.004); ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y); ctx.lineTo(pts[1].x,pts[1].y); ctx.stroke(); }
+    };
+    physInitVideo(null, {onCanvasClick:physCalibClick});
+}
+function physCalibClick(x,y){
+    if(PHYS.calib.pts.length>=2) PHYS.calib.pts=[];
+    PHYS.calib.pts.push({x,y});
+    physRedraw();
+    const form=document.getElementById('phys-calib-form');
+    if(form) form.style.display = PHYS.calib.pts.length===2 ? 'block' : 'none';
+}
+function physCalibCompute(){
+    const pts=PHYS.calib.pts;
+    if(pts.length<2){ toast('Tocca i due punti di riferimento sul video','info'); return; }
+    const dist=parseFloat(document.getElementById('phys-calib-dist').value);
+    if(!dist||dist<=0){ toast('Inserisci la distanza reale in metri','info'); return; }
+    const distPx=Math.hypot(pts[1].x-pts[0].x, pts[1].y-pts[0].y);
+    const pxPerMeter=distPx/dist;
+    document.getElementById('phys-calib-result').innerHTML=`
+        <div class="phys-note" style="border-color:var(--brand);background:rgba(34,197,94,.1)">
+            <i class="fa-solid fa-check" style="color:var(--brand)"></i>
+            <div><b>${pxPerMeter.toFixed(1)} px/metro</b> — torna giusto?
+                <div style="display:flex;gap:8px;margin-top:8px">
+                    <button type="button" class="btn btn-accent btn-sm" onclick="physCalibAccept(${pxPerMeter})"><i class="fa-solid fa-check"></i> Sì, continua</button>
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="physCalibRetry()"><i class="fa-solid fa-rotate-left"></i> Ricalibra</button>
+                </div>
+            </div>
+        </div>`;
+}
+function physCalibRetry(){
+    PHYS.calib.pts=[];
+    const form=document.getElementById('phys-calib-form'); if(form) form.style.display='none';
+    const res=document.getElementById('phys-calib-result'); if(res) res.innerHTML='';
+    physRedraw();
+}
+function physCalibAccept(pxPerMeter){
+    PHYS.calib.pxPerMeter=pxPerMeter;
+    if(PHYS.type==='sprint') physStepMarkersSprint(0); else physStepJumpRef();
+}
+/* ---- Modulo A: Sprint + Reazione (3 marcatori) ---- */
+const PHYS_SPRINT_STEPS=[
+    {key:'viola', label:'Via', color:'#8B5CF6', desc:'Scorri il video fino al frame in cui parte il segnale di via (fischio/voce), poi premi "Segna qui".'},
+    {key:'verde', label:'Start movimento', color:'#22C55E', desc:'Scorri fino al frame in cui il giocatore inizia davvero a muoversi, poi premi "Segna qui".'},
+    {key:'rosso', label:'Arrivo', color:'#EF4444', desc:'Scorri fino al frame in cui il giocatore raggiunge la linea di arrivo, tocca il punto sul video e poi premi "Segna qui".'}
+];
+function physStepMarkersSprint(idx){
+    const step=PHYS_SPRINT_STEPS[idx];
+    openModal(`<div class="modal-head"><h3><i class="fa-solid fa-flag-checkered" style="color:${step.color}"></i> Marcatore ${idx+1}/3 — ${step.label}</h3>
+        <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="modal-body">
+        <p class="hint" style="margin-bottom:10px">${step.desc}</p>
+        ${physVideoBlock()}
+        <button type="button" class="btn btn-accent" style="width:100%;margin-top:12px" id="phys-mark-btn" onclick="physMarkSprint(${idx})" ${step.key==='rosso'?'disabled':''}><i class="fa-solid fa-map-pin"></i> Segna qui</button>
+        ${physDisclaimerHTML()}
+      </div>`, true);
+    PHYS._pendingPoint=null;
+    const needsTap = step.key==='rosso';
+    PHYS.overlayDraw = needsTap ? (ctx,cv)=>{ if(PHYS._pendingPoint) physDot(ctx,cv,PHYS._pendingPoint.x,PHYS._pendingPoint.y,step.color); } : null;
+    physInitVideo(null, needsTap ? {onCanvasClick:(x,y)=>{ PHYS._pendingPoint={x,y}; physRedraw(); const b=document.getElementById('phys-mark-btn'); if(b) b.disabled=false; }} : {});
+}
+function physMarkSprint(idx){
+    const v=document.getElementById('phys-video'), step=PHYS_SPRINT_STEPS[idx];
+    PHYS.markers[step.key]=v.currentTime;
+    if(step.key==='rosso') PHYS.markers.arrivoPx=PHYS._pendingPoint;
+    if(idx<2) physStepMarkersSprint(idx+1); else physStepSprintDistance();
+}
+function physStepSprintDistance(){
+    openModal(`<div class="modal-head"><h3><i class="fa-solid fa-ruler-horizontal" style="color:var(--brand)"></i> Distanza sprint</h3>
+        <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="modal-body">
+        <p class="hint" style="margin-bottom:10px">Distanza nota dello sprint (es. 20 metri) — indipendente dalla calibrazione video: la distanza reale la conosce già l'allenatore.</p>
+        <div class="fg"><label>Distanza (metri)</label><input id="phys-sprint-dist" type="number" min="0.1" step="0.1" placeholder="Es. 20"></div>
+        <button type="button" class="btn btn-accent" style="width:100%;margin-top:10px" onclick="physSaveSprint()"><i class="fa-solid fa-floppy-disk"></i> Calcola e salva</button>
+      </div>`, true);
+}
+function physSaveSprint(){
+    const distanza=parseFloat(document.getElementById('phys-sprint-dist').value);
+    if(!distanza||distanza<=0){ toast('Inserisci la distanza in metri','info'); return; }
+    const m=PHYS.markers;
+    const tempoReazione=+(m.verde-m.viola).toFixed(3);
+    const tempoSprint=+(m.rosso-m.verde).toFixed(3);
+    if(tempoSprint<=0){ toast('Il marcatore Arrivo deve venire dopo Start movimento','danger'); return; }
+    const velocitaMedia=+(distanza/tempoSprint).toFixed(2);
+    const accelerazioneMedia=+(velocitaMedia/tempoSprint).toFixed(2);
+    DB.physicalTests.sprint.push({id:uid(), playerId:PHYS.playerId, date:today().toISOString().slice(0,10),
+        tempoReazione, tempoSprint, distanza, velocitaMedia, accelerazioneMedia});
+    save();
+    if(PHYS.videoURL) URL.revokeObjectURL(PHYS.videoURL);
+    PHYS=null; closeModal(); toast('Test sprint salvato'); renderPhysHistory();
+}
+/* ---- Modulo B: Salto Verticale (calibrazione + 2 marcatori) ---- */
+function physStepJumpRef(){
+    openModal(`<div class="modal-head"><h3><i class="fa-solid fa-crosshairs" style="color:var(--brand)"></i> Punto di riferimento</h3>
+        <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="modal-body">
+        <p class="hint" style="margin-bottom:10px">Scegli il punto del corpo che userai per marcare stacco e massima elevazione: userai sempre lo stesso punto su entrambi i frame.</p>
+        <div class="fg"><label>Punto di riferimento</label><select id="phys-jump-refpt"><option>Bacino</option><option>Mano</option><option>Testa</option><option>Altro</option></select></div>
+        <button type="button" class="btn btn-accent" style="width:100%;margin-top:10px" onclick="physJumpRefConfirm()"><i class="fa-solid fa-arrow-right"></i> Continua</button>
+      </div>`, true);
+}
+function physJumpRefConfirm(){ PHYS.refPoint=document.getElementById('phys-jump-refpt').value; physStepMarkersJump(0); }
+const PHYS_JUMP_STEPS=[
+    {key:'stacco', label:'Stacco da terra', desc:'Scorri fino al frame di stacco da terra e tocca il punto di riferimento sul corpo del giocatore.'},
+    {key:'massimo', label:'Massima elevazione', desc:'Scorri fino al frame di massima elevazione e tocca lo stesso punto di riferimento.'}
+];
+function physStepMarkersJump(idx){
+    const step=PHYS_JUMP_STEPS[idx];
+    openModal(`<div class="modal-head"><h3><i class="fa-solid fa-arrow-up" style="color:var(--brand)"></i> Marcatore ${idx+1}/2 — ${step.label}</h3>
+        <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="modal-body">
+        <p class="hint" style="margin-bottom:10px">${step.desc} Punto di riferimento: <b>${PHYS.refPoint}</b>.</p>
+        ${physVideoBlock()}
+        <button type="button" class="btn btn-accent" style="width:100%;margin-top:12px" id="phys-mark-btn" onclick="physMarkJump(${idx})" disabled><i class="fa-solid fa-map-pin"></i> Conferma marcatore</button>
+        ${physDisclaimerHTML()}
+      </div>`, true);
+    PHYS._pendingPoint=null;
+    PHYS.overlayDraw=(ctx,cv)=>{ if(PHYS._pendingPoint) physDot(ctx,cv,PHYS._pendingPoint.x,PHYS._pendingPoint.y,'#22C55E'); };
+    physInitVideo(null, {onCanvasClick:(x,y)=>{ PHYS._pendingPoint={x,y}; physRedraw(); const b=document.getElementById('phys-mark-btn'); if(b) b.disabled=false; }});
+}
+function physMarkJump(idx){
+    const step=PHYS_JUMP_STEPS[idx];
+    PHYS.markers[step.key]=PHYS._pendingPoint;
+    if(idx===0) physStepMarkersJump(1); else physSaveJump();
+}
+function physSaveJump(){
+    const {stacco,massimo}=PHYS.markers;
+    const pxDelta=stacco.y-massimo.y; // massima elevazione = y minore (più in alto sullo schermo)
+    if(pxDelta<=0){ toast('Il punto di massima elevazione deve essere più in alto dello stacco','danger'); return; }
+    const altezzaSalto=+((pxDelta/PHYS.calib.pxPerMeter)*100).toFixed(1); // cm
+    DB.physicalTests.jump.push({id:uid(), playerId:PHYS.playerId, date:today().toISOString().slice(0,10),
+        altezzaSalto, puntoRiferimentoUsato:PHYS.refPoint});
+    save();
+    if(PHYS.videoURL) URL.revokeObjectURL(PHYS.videoURL);
+    PHYS=null; closeModal(); toast('Test salto salvato'); renderPhysHistory();
+}
+
+/* =========================================================
    NAVIGAZIONE
    ========================================================= */
 const RENDERERS = {
     dashboard:renderDashboard, roster:renderRoster, calendario:renderCalendar,
     scout:populateScout, presenze:populateAtt, allenamenti:populateTraining, tattica:initBoard, backup:()=>pwaMarkSettings(!!(swReg&&swReg.waiting)),
-    formazione:renderFormazione
+    formazione:renderFormazione, 'test-fisici':renderPhysicalTests
 };
 function go(sec){
     document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
@@ -3430,7 +3756,7 @@ function backupReminderNow(){ exportData(); dismissBackupReminder(); }
    Il nuovo codice si scarica in background e resta in attesa;
    l'utente decide QUANDO applicarlo. I dati (localStorage) restano intatti.
    ========================================================= */
-const APP_VERSION='volleyteam-v54';   /* combacia col CACHE_VERSION di sw.js */
+const APP_VERSION='volleyteam-v55';   /* combacia col CACHE_VERSION di sw.js */
 let swReg=null, pwaRefreshing=false;
 function pwaCSS(){
   if(document.getElementById('pwa-css')) return;
