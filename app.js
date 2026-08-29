@@ -3,7 +3,7 @@
    Importa un "pacchetto profilo" generato dall'app del coach.
    ========================================================= */
 'use strict';
-const APP_VERSION='1.14.0';
+const APP_VERSION='1.15.0';
 const LS='vtm_player_db';
 const MONTHS=['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
 const today=()=>new Date(new Date().toDateString());
@@ -70,7 +70,11 @@ function wlSave(){ localStorage.setItem(WL_LS,JSON.stringify(WL)); }
 function decode(code){ return JSON.parse(decodeURIComponent(escape(atob(code.trim())))); }
 function applyPkg(pkg){
     if(!pkg||pkg.k!=='vtm-player'||!pkg.p) throw new Error('formato');
-    S={pkg, self:{}, mine:[], onboard:false};
+    /* badgeSeen/cardTransform/badgeSlots sono personalizzazioni del giocatore sul
+       dispositivo: sopravvivono a un nuovo pacchetto ricevuto dal mister, non fanno
+       parte dei dati che il mister invia. */
+    const keep={badgeSeen:S.badgeSeen, badgeSeenInit:S.badgeSeenInit, cardTransform:S.cardTransform, badgeSlots:S.badgeSlots};
+    S=Object.assign({pkg, self:{}, mine:[], onboard:false}, keep);
     if(pkg.photo){ PL_PHOTO=pkg.photo; idbSet('self',pkg.photo); }
     save(); closeOnboarding(); renderAll(); toast('Profilo caricato: '+pkg.p.name);
 }
@@ -275,19 +279,105 @@ function renderTraining(){
 }
 function rate(key,val){ S.self[key]=S.self[key]===val?undefined:val; if(!S.self[key])delete S.self[key]; save(); renderTraining(); }
 
+/* =========================================================
+   BADGE — famiglie/livelli per sport (Bronzo/Argento/Oro/Leggenda),
+   calcolati sulle statistiche di stagione già presenti nel pacchetto
+   (season.cells + season.matches/season.ace). Nessun nuovo dato da
+   far inserire al mister: se una statistica non è presente nel
+   pacchetto, il badge relativo resta a 0/bloccato.
+   ========================================================= */
+const BADGE_LEVELS=[null,
+  {key:'bronzo',label:'Bronzo',color:'#cd7f32'},
+  {key:'argento',label:'Argento',color:'#b9c4cc'},
+  {key:'oro',label:'Oro',color:'#f5b301'},
+  {key:'leggenda',label:'Leggenda',color:'#b967ff'}
+];
+const BADGE_FAMILIES={
+  calcio:[
+    {id:'bomber',name:'Bomber',icon:'fa-futbol',terms:['gol'],thresholds:[5,15,30,50]},
+    {id:'assistman',name:'Assist Man',icon:'fa-hands-clapping',terms:['assist'],thresholds:[5,15,25,40]},
+    {id:'murodiferro',name:'Muro di Ferro',icon:'fa-shield-halved',terms:['contrasti vinti','contrasti'],thresholds:[20,50,100,175]},
+    {id:'guardiano',name:'Guardiano',icon:'fa-hand',terms:['parate'],thresholds:[15,40,80,150]},
+    {id:'presenze',name:'Presenze',icon:'fa-calendar-check',fixed:'matches',thresholds:[5,15,30,50]}
+  ],
+  pallavolo:[
+    {id:'thewall',name:'The Wall',icon:'fa-hand-fist',terms:['muri','muro'],thresholds:[25,50,100,200]},
+    {id:'thebreak',name:'The Break',icon:'fa-bolt',terms:["punti d'attacco",'punti in attacco','punti attacco'],thresholds:[30,75,150,300]},
+    {id:'maninadoro',name:"Manina d'Oro",icon:'fa-hand-sparkles',terms:['ricezioni positive','ricezione positiva'],thresholds:[40,100,200,400]},
+    {id:'serviziolet',name:'Servizio Letale',icon:'fa-rocket',fixed:'ace',terms:['ace'],thresholds:[10,25,50,100]},
+    {id:'presenze',name:'Presenze',icon:'fa-calendar-check',fixed:'matches',thresholds:[5,15,30,50]}
+  ],
+  basket:[
+    {id:'cecchino',name:'Cecchino',icon:'fa-crosshairs',terms:['punti'],thresholds:[30,75,150,300]},
+    {id:'rimbalzista',name:'Rimbalzista',icon:'fa-arrows-up-down',terms:['rimbalzi'],thresholds:[20,50,100,200]},
+    {id:'assistman',name:'Assist Man',icon:'fa-hands-clapping',terms:['assist'],thresholds:[15,40,80,150]},
+    {id:'muraglia',name:'Muraglia',icon:'fa-shield-halved',terms:['stoppate'],fallbackTerms:['palle rubate','rubate'],thresholds:[10,25,50,100]},
+    {id:'presenze',name:'Presenze',icon:'fa-calendar-check',fixed:'matches',thresholds:[5,15,30,50]}
+  ]
+};
+function badgeNorm(s){ return (s||'').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
+function badgeCellValue(terms){
+  const cells=(P().season&&P().season.cells)||[];
+  for(const c of cells){
+    if((c[2]||'')==='%') continue; /* le percentuali non sono conteggi cumulativi */
+    const label=badgeNorm(c[0]);
+    if(terms.some(t=>label.includes(badgeNorm(t)))){ const v=parseFloat(c[1]); if(!isNaN(v)) return v; }
+  }
+  return null;
+}
+function badgeStatValue(fam){
+  if(fam.fixed && P().season && P().season[fam.fixed]!=null) return +P().season[fam.fixed]||0;
+  let v=badgeCellValue(fam.terms);
+  if(v==null && fam.fallbackTerms) v=badgeCellValue(fam.fallbackTerms);
+  return v!=null?v:0;
+}
+function badgeLevelFor(value,thresholds){ let lvl=0; for(let i=0;i<thresholds.length;i++){ if(value>=thresholds[i]) lvl=i+1; } return lvl; }
+function computeBadgeStates(){
+  const fams=BADGE_FAMILIES[sportOf()]||[];
+  return fams.map(fam=>{
+    const value=badgeStatValue(fam), level=badgeLevelFor(value,fam.thresholds);
+    const next=level<4?fam.thresholds[level]:null;
+    return {fam,value,level,next,remaining:next!=null?Math.max(0,next-value):0};
+  });
+}
+function checkBadgeUnlocks(){
+  if(!S.badgeSeen) S.badgeSeen={};
+  const firstRun=!S.badgeSeenInit, sport=sportOf();
+  computeBadgeStates().forEach(st=>{
+    const key=sport+':'+st.fam.id, prev=S.badgeSeen[key]||0;
+    if(!firstRun && st.level>prev){ const m=BADGE_LEVELS[st.level]; toast(`🏅 ${st.fam.name} — livello ${m.label} sbloccato!`); }
+    S.badgeSeen[key]=st.level;
+  });
+  if(firstRun) S.badgeSeenInit=true;
+  save();
+}
+function badgeFamCSS(){
+  if(document.getElementById('badgefam-css'))return;
+  const st=document.createElement('style'); st.id='badgefam-css';
+  st.textContent=`
+  .badge .lvl-pill{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:20px;font-size:.62rem;font-weight:800;letter-spacing:.4px;text-transform:uppercase;}
+  .badge .bf-prog{display:block;font-size:.66rem;color:var(--muted-2);margin-top:4px;}
+  .badge-chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--line);color:var(--text);padding:8px 12px;border-radius:20px;font-size:.8rem;font-weight:700;cursor:pointer;font-family:'Urbanist';}
+  .badge-chip:disabled{cursor:not-allowed;opacity:.4;filter:grayscale(.6);}
+  .badge-chip.on{background:rgba(34,197,94,.14);border-color:var(--brand);}
+  `;
+  document.head.appendChild(st);
+}
+function renderBadgeFamiliesGrid(){
+  return computeBadgeStates().map(st=>{
+    const {fam,level,next,remaining}=st, meta=BADGE_LEVELS[level], locked=level===0;
+    const lvlPill=meta?`<span class="lvl-pill" style="background:${meta.color}22;color:${meta.color}">${meta.label}</span>`:'';
+    const prog=next!=null?`<span class="bf-prog">Mancano ${Math.ceil(remaining)} per il prossimo livello</span>`:`<span class="bf-prog">Livello massimo</span>`;
+    return `<div class="badge ${locked?'locked':'earned'}"><div class="ic" style="${meta?`color:${meta.color}`:''}"><i class="fa-solid ${fam.icon}"></i></div><b>${fam.name}</b>${lvlPill}${prog}</div>`;
+  }).join('');
+}
+
 function renderProgress(){
-    const s=P().season, f=form(), att=P().attPct;
+    const s=P().season, att=P().attPct;
     const best=(P().voti||[]).reduce((m,x)=>x.v>m?x.v:m,0);
-    const badges=[
-        {ic:'fa-fire',n:'In forma',d:'Trend in crescita',ok:f.d==='up'},
-        {ic:'fa-star',n:'Top rendimento',d:'Media ≥ 7.0',ok:s.avgVoto!=null&&s.avgVoto>=7},
-        {ic:'fa-bolt',n:'Impatto',d:'Un voto ≥ 8.0',ok:best>=8},
-        {ic:'fa-user-clock',n:'Presenze d\'oro',d:'≥ 85% presenze',ok:att!=null&&att>=85},
-        {ic:'fa-medal',n:'Veterano',d:'≥ 5 gare giocate',ok:s.matches>=5},
-        {ic:'fa-heart',n:'Sempre presente',d:'≥ 2 gare giocate',ok:s.matches>=2}
-    ];
-    const earned=badges.filter(b=>b.ok).length;
-    const bg=badges.map(b=>`<div class="badge ${b.ok?'earned':'locked'}"><div class="ic"><i class="fa-solid ${b.ic}"></i></div><b>${b.n}</b><span>${b.d}</span></div>`).join('');
+    badgeFamCSS(); checkBadgeUnlocks();
+    const states=computeBadgeStates(), earned=states.filter(st=>st.level>0).length;
+    const bg=renderBadgeFamiliesGrid();
     document.getElementById('progressi').innerHTML=`<div class="sec-title">Obiettivi</div><div class="sec-h">I miei progressi</div>
         <div class="card"><h3><i class="fa-solid fa-user-check"></i> Costanza presenze</h3>
             <div class="bar-track"><div class="bar-fill" style="width:${att||0}%"></div></div>
@@ -295,7 +385,7 @@ function renderProgress(){
         <div class="card"><h3><i class="fa-solid fa-star"></i> Record</h3>
             <div class="stat-grid"><div class="stat-cell"><div class="l">Voto più alto</div><div class="v num" style="color:var(--brand)">${best?best.toFixed(1):'—'}</div></div>
             <div class="stat-cell"><div class="l">Gare giocate</div><div class="v num">${s.matches}</div></div></div></div>
-        <div class="card"><h3><i class="fa-solid fa-trophy"></i> Distintivi <span style="color:var(--muted);font-weight:600;font-size:.82rem">${earned}/${badges.length}</span></h3>
+        <div class="card"><h3><i class="fa-solid fa-trophy"></i> I miei badge <span style="color:var(--muted);font-weight:600;font-size:.82rem">${earned}/${states.length}</span></h3>
             <div class="badge-grid">${bg}</div></div>`;
 }
 
@@ -639,7 +729,7 @@ function plMediaCSS(){
   .pl-avatar{width:104px;height:104px;border-radius:50%;margin:2px auto 8px;position:relative;cursor:pointer;
     border:3px solid var(--brand);background:var(--surface-2);overflow:visible;display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px -12px rgba(0,0,0,.65);}
   .pl-avatar>.im{width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;}
-  .pl-avatar img{width:100%;height:100%;object-fit:cover;}
+  .pl-avatar img{width:100%;height:100%;object-fit:cover;object-position:top;}
   .pl-avatar .ph{color:var(--muted);font-size:.72rem;font-weight:800;text-align:center;line-height:1.15;}
   .pl-avatar .cam{position:absolute;bottom:-2px;right:-2px;width:32px;height:32px;border-radius:50%;background:var(--brand);color:#04140A;display:flex;align-items:center;justify-content:center;border:3px solid #0b1424;font-size:.78rem;}
   .pl-cardbtn{width:100%;margin-top:12px;background:linear-gradient(90deg,var(--brand-deep),var(--brand));color:#04140A;border:0;border-radius:12px;padding:12px;font-weight:800;font-family:'Outfit',sans-serif;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;}
@@ -671,51 +761,48 @@ function pickPhoto(){
     const rd=new FileReader(); rd.onload=()=>{ const im=new Image(); im.onload=()=>{
       const MAX=1000, r=Math.min(MAX/im.width,MAX/im.height,1), w=Math.round(im.width*r), h=Math.round(im.height*r);
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(im,0,0,w,h);
-      repositionPhoto(cv.toDataURL('image/png'));
+      askRemoveBg(cv.toDataURL('image/png'));
     }; im.src=rd.result; };
     rd.readAsDataURL(f);
   };
   inp.click();
 }
-function repositionPhoto(srcDataURL){
-  plMediaCSS();
-  const Fw=246, Fh=328; // frame 3:4
-  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-crop-simple" style="color:var(--brand)"></i> Posiziona la foto</h3>
+/* Modulo A — invece del vecchio pannello a slider: si chiede solo se rimuovere lo
+   sfondo, poi il posizionamento vero e proprio si fa a mano libera (drag+pinch)
+   direttamente sopra l'anteprima della tier card, in openMyCard(). */
+function askRemoveBg(srcDataURL){
+  plMediaCSS(); window.__pp=srcDataURL;
+  openModal(`<div class="modal-head"><h3><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--brand)"></i> Rimuovere lo sfondo?</h3>
       <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body" style="text-align:center">
-      <div id="rp-frame" class="rp-checker" style="width:${Fw}px;height:${Fh}px;margin:0 auto;border-radius:16px;overflow:hidden;position:relative;touch-action:none;border:2px solid var(--brand)">
-        <img id="rp-img" src="${srcDataURL}" style="position:absolute;left:0;top:0;transform-origin:0 0;user-select:none;pointer-events:none;max-width:none">
+      <div class="rp-checker" style="width:200px;height:200px;margin:0 auto;border-radius:16px;overflow:hidden;border:2px solid var(--brand)">
+        <img id="arb-img" src="${srcDataURL}" style="width:100%;height:100%;object-fit:cover">
       </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:14px">
-        <i class="fa-solid fa-magnifying-glass-minus" style="color:var(--muted)"></i>
-        <input id="rp-zoom" type="range" min="100" max="300" value="100" style="flex:1">
-        <i class="fa-solid fa-magnifying-glass-plus" style="color:var(--muted)"></i>
+      <div id="arb-status" style="display:none;font-size:.78rem;color:var(--muted);margin-top:10px"></div>
+      <p style="color:var(--muted-2);font-size:.78rem;margin-top:10px">Se la foto ha già lo sfondo trasparente, scegli "No".</p>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-accent" id="arb-yes" style="flex:1" onclick="arbApply()"><i class="fa-solid fa-wand-magic-sparkles"></i> Sì, rimuovi</button>
+        <button class="btn btn-ghost" id="arb-no" style="flex:1" onclick="arbSkip()">No, lascia così</button>
       </div>
-      <div style="margin-top:12px">
-        <button class="btn btn-ghost" id="rp-bgbtn" style="width:100%" onclick="rpAiRemove()"><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--brand)"></i> Rimuovi sfondo</button>
-        <div id="rp-bgstatus" style="display:none;font-size:.78rem;color:var(--muted);margin-top:8px"></div>
-        <button class="btn btn-ghost btn-sm" id="rp-bgreset" style="display:none;margin-top:6px" onclick="rpReset()"><i class="fa-solid fa-rotate-left"></i> Ripristina originale</button>
-      </div>
-      <p style="color:var(--muted-2);font-size:.78rem;margin-top:6px">Trascina per spostare, usa lo slider per lo zoom. Se la foto ha già lo sfondo trasparente, lasciala così.</p>
-      <button class="btn btn-accent" style="width:100%;margin-top:12px" onclick="confirmPhoto()"><i class="fa-solid fa-check"></i> Conferma</button>
     </div>`);
-  const frame=document.getElementById('rp-frame'), img=document.getElementById('rp-img');
-  const st={imgW:0,imgH:0,cover:1,zoom:1,tx:0,ty:0};
-  const dispW=()=>st.imgW*st.cover*st.zoom, dispH=()=>st.imgH*st.cover*st.zoom;
-  const clamp=()=>{ st.tx=Math.min(0,Math.max(Fw-dispW(),st.tx)); st.ty=Math.min(0,Math.max(Fh-dispH(),st.ty)); };
-  const apply=()=>{ img.style.transform=`translate(${st.tx}px,${st.ty}px) scale(${st.cover*st.zoom})`; };
-  const init=()=>{ st.imgW=img.naturalWidth; st.imgH=img.naturalHeight; st.cover=Math.max(Fw/st.imgW,Fh/st.imgH);
-    st.zoom=1; st.tx=(Fw-dispW())/2; st.ty=(Fh-dispH())/2; clamp(); apply(); };
-  let firstInit=true;
-  img.onload=()=>{ if(firstInit){ init(); firstInit=false; } else { clamp(); apply(); } };
-  if(img.complete && img.naturalWidth){ init(); firstInit=false; }
-  document.getElementById('rp-zoom').oninput=e=>{ const z=e.target.value/100; const cx=Fw/2-st.tx, cy=Fh/2-st.ty, ratio=z/st.zoom;
-    st.zoom=z; st.tx=Fw/2-cx*ratio; st.ty=Fh/2-cy*ratio; clamp(); apply(); };
-  let px,py,drag=false;
-  frame.addEventListener('pointerdown',e=>{drag=true;px=e.clientX;py=e.clientY;try{frame.setPointerCapture(e.pointerId);}catch(_){}});
-  frame.addEventListener('pointermove',e=>{ if(!drag)return; st.tx+=e.clientX-px; st.ty+=e.clientY-py; px=e.clientX; py=e.clientY; clamp(); apply(); });
-  frame.addEventListener('pointerup',()=>drag=false); frame.addEventListener('pointercancel',()=>drag=false);
-  window.__rp={st,Fw,Fh,img,original:srcDataURL};
+}
+async function arbApply(){
+  const src=window.__pp; if(!src) return;
+  const status=document.getElementById('arb-status'), yes=document.getElementById('arb-yes'), no=document.getElementById('arb-no');
+  if(yes)yes.disabled=true; if(no)no.disabled=true;
+  if(status){ status.style.display='block'; status.textContent='Elaboro…'; }
+  let out=src;
+  try{ out=await aiRemoveBgP(src, p=>{ if(status) status.textContent=p<1?`Elaboro… ${Math.round(p*100)}%`:'Quasi fatto…'; }); }
+  catch(e){
+    if(status) status.textContent='AI non disponibile, uso il metodo veloce…';
+    try{ out=await chromaKeyDataURLP(src,72); }catch(_){ out=src; if(status) status.textContent='Non riesco a rimuovere lo sfondo qui.'; }
+  }
+  finishPhoto(out);
+}
+function arbSkip(){ finishPhoto(window.__pp); }
+function finishPhoto(dataURL){
+  PL_PHOTO=dataURL; idbSet('self',dataURL); S.cardTransform={x:50,y:50,scale:1}; save();
+  window.__pp=null; closeModal(); renderProfilo(); if(S && S.pkg) openMyCard(); toast('Foto aggiornata');
 }
 /* rimuovi-sfondo: AI (segmentazione soggetto, @imgly in-browser) con fallback chroma-key sugli angoli */
 let _imglyRemoveP=null;
@@ -738,31 +825,6 @@ function chromaKeyDataURLP(srcDataURL,tol){ return new Promise(res=>{ const im=n
   const c=document.createElement('canvas'); c.width=im.naturalWidth||im.width; c.height=im.naturalHeight||im.height;
   const ctx=c.getContext('2d'); ctx.drawImage(im,0,0); const d=ctx.getImageData(0,0,c.width,c.height);
   chromaApplyP(d.data,c.width,c.height,tol); ctx.putImageData(d,0,0); res(c.toDataURL('image/png')); }; im.src=srcDataURL; }); }
-async function rpAiRemove(){
-  const R=window.__rp; if(!R) return;
-  const btn=document.getElementById('rp-bgbtn'), status=document.getElementById('rp-bgstatus'), reset=document.getElementById('rp-bgreset');
-  if(btn) btn.disabled=true; if(status){ status.style.display='block'; status.textContent='Preparo il ritaglio…'; }
-  try{
-    const out=await aiRemoveBgP(R.original, p=>{ if(status) status.textContent = p<1?`Elaboro… ${Math.round(p*100)}%`:'Quasi fatto…'; });
-    R.img.src=out; if(status) status.textContent='Sfondo rimosso ✓'; if(reset) reset.style.display='block';
-  }catch(e){
-    if(status) status.textContent='AI non disponibile, uso il metodo veloce…';
-    try{ const out=await chromaKeyDataURLP(R.original,72); R.img.src=out; if(status) status.textContent='Sfondo rimosso (metodo veloce) ✓'; if(reset) reset.style.display='block'; }
-    catch(_){ if(status) status.textContent='Non riesco a rimuovere lo sfondo qui. Prova con connessione attiva.'; }
-  }
-  if(btn) btn.disabled=false;
-}
-function rpReset(){ const R=window.__rp; if(!R)return; R.img.src=R.original; const s=document.getElementById('rp-bgstatus'); if(s) s.style.display='none'; const b=document.getElementById('rp-bgreset'); if(b) b.style.display='none'; }
-function confirmPhoto(){
-  const R=window.__rp; if(!R){closeModal();return;}
-  const {st,Fw,Fh,img}=R, Tw=480, Th=640, s=st.cover*st.zoom;
-  const c=document.createElement('canvas'); c.width=Tw; c.height=Th; const ctx=c.getContext('2d');
-  ctx.drawImage(img, (-st.tx)/s, (-st.ty)/s, Fw/s, Fh/s, 0,0,Tw,Th);
-  const data=c.toDataURL('image/png');
-  PL_PHOTO=data; idbSet('self',data); closeModal(); renderProfilo();
-  if(S && S.pkg) openMyCard();
-  toast('Foto aggiornata');
-}
 function removePhoto(){ PL_PHOTO=null; idbDel('self'); renderProfilo(); if(document.querySelector('.fc')) openMyCard(); toast('Foto rimossa'); }
 /* ---------- Card a tier (stesso motore del coach: layout ufficiale + attributi FIFA-style) ---------- */
 const TIER_ORDER=['goat','mythic','diamond','gold','silver'];
@@ -774,14 +836,17 @@ const BASE_CARD_LAYOUT={
   number:{show:1,x:78,y:15,size:9,color:'#ffffff',align:'center'},
   name:{show:1,x:50,y:66,size:7.4,color:'#ffffff',align:'center'},
   attrs:{show:1,x:50,y:82,size:5,color:'#ffffff'},
-  tierName:{show:0,x:50,y:94,size:4,color:'#ffffff',align:'center'}
+  tierName:{show:0,x:50,y:94,size:4,color:'#ffffff',align:'center'},
+  badges:{x:50,y:80,size:9}
 };
+/* `badges`: area SUGGERITA (non un contenitore rigido come photo/logo) dove
+   posizionare di default i badge scelti dal giocatore — vedi Modulo B. */
 const DEPLOY_CARD_LAYOUTS={
-  goat:{photo:{show:1,x:50,y:23.5,w:86,h:47},logo:{show:1,x:78,y:20.5,w:22.5},overall:{show:1,x:18.5,y:20,size:11,color:'#fff1b3',align:'center'},role:{show:1,x:18.5,y:29,size:4.6,color:'#ffcc02',align:'center'},number:{show:1,x:77.5,y:28.5,size:6.2,color:'#ffcc02',align:'center'},name:{show:1,x:50,y:56.5,size:6.4,color:'#fff7bd',align:'center'},attrs:{show:1,x:50,y:68.5,size:6.4,color:'#fff2d0'},tierName:{show:1,x:50,y:85,size:5.2,color:'#ff6a00',align:'center'}},
-  mythic:{photo:{show:1,x:50,y:31,w:66,h:42.5},logo:{show:1,x:79.5,y:19,w:22},overall:{show:1,x:19,y:18,size:12,color:'#fcdbff',align:'center'},role:{show:1,x:19,y:24.5,size:4.6,color:'#ffffff',align:'center'},number:{show:1,x:79,y:26.5,size:6.8,color:'#ffedfe',align:'center'},name:{show:1,x:50,y:57,size:7.2,color:'#ffd7ff',align:'center'},attrs:{show:1,x:50,y:73,size:6.6,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#efcaff',align:'center'}},
-  diamond:{photo:{show:1,x:50,y:30,w:66,h:44},logo:{show:1,x:81.5,y:22,w:22.5},overall:{show:1,x:17,y:21,size:12,color:'#12fffe',align:'center'},role:{show:1,x:17.5,y:29.5,size:5.4,color:'#ffffff',align:'center'},number:{show:1,x:81.5,y:30,size:6.2,color:'#ffffff',align:'center'},name:{show:1,x:50,y:57.5,size:7.4,color:'#7bf7ff',align:'center'},attrs:{show:1,x:50,y:74,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#93e3fd',align:'center'}},
-  gold:{photo:{show:1,x:50,y:26.5,w:66,h:49},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:11,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:6.2,color:'#fcfcff',align:'center'},number:{show:1,x:81.5,y:27.5,size:6.8,color:'#ffffff',align:'center'},name:{show:1,x:50,y:59.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:75.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:91,size:4.6,color:'#c49e00',align:'center'}},
-  silver:{photo:{show:1,x:50,y:29.5,w:72,h:44},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:13.6,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:5.2,color:'#ffffff',align:'center'},number:{show:1,x:82,y:28,size:6.4,color:'#ffffff',align:'center'},name:{show:1,x:50,y:58.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:74.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:90,size:4,color:'#d6d6d6',align:'center'}}
+  goat:{photo:{show:1,x:50,y:23.5,w:86,h:47},logo:{show:1,x:78,y:20.5,w:22.5},overall:{show:1,x:18.5,y:20,size:11,color:'#fff1b3',align:'center'},role:{show:1,x:18.5,y:29,size:4.6,color:'#ffcc02',align:'center'},number:{show:1,x:77.5,y:28.5,size:6.2,color:'#ffcc02',align:'center'},name:{show:1,x:50,y:56.5,size:6.4,color:'#fff7bd',align:'center'},attrs:{show:1,x:50,y:68.5,size:6.4,color:'#fff2d0'},tierName:{show:1,x:50,y:85,size:5.2,color:'#ff6a00',align:'center'},badges:{x:50,y:77,size:9}},
+  mythic:{photo:{show:1,x:50,y:31,w:66,h:42.5},logo:{show:1,x:79.5,y:19,w:22},overall:{show:1,x:19,y:18,size:12,color:'#fcdbff',align:'center'},role:{show:1,x:19,y:24.5,size:4.6,color:'#ffffff',align:'center'},number:{show:1,x:79,y:26.5,size:6.8,color:'#ffedfe',align:'center'},name:{show:1,x:50,y:57,size:7.2,color:'#ffd7ff',align:'center'},attrs:{show:1,x:50,y:73,size:6.6,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#efcaff',align:'center'},badges:{x:50,y:80,size:9}},
+  diamond:{photo:{show:1,x:50,y:30,w:66,h:44},logo:{show:1,x:81.5,y:22,w:22.5},overall:{show:1,x:17,y:21,size:12,color:'#12fffe',align:'center'},role:{show:1,x:17.5,y:29.5,size:5.4,color:'#ffffff',align:'center'},number:{show:1,x:81.5,y:30,size:6.2,color:'#ffffff',align:'center'},name:{show:1,x:50,y:57.5,size:7.4,color:'#7bf7ff',align:'center'},attrs:{show:1,x:50,y:74,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:88.5,size:4.2,color:'#93e3fd',align:'center'},badges:{x:50,y:81,size:9}},
+  gold:{photo:{show:1,x:50,y:26.5,w:66,h:49},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:11,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:6.2,color:'#fcfcff',align:'center'},number:{show:1,x:81.5,y:27.5,size:6.8,color:'#ffffff',align:'center'},name:{show:1,x:50,y:59.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:75.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:91,size:4.6,color:'#c49e00',align:'center'},badges:{x:50,y:83,size:9}},
+  silver:{photo:{show:1,x:50,y:29.5,w:72,h:44},logo:{show:1,x:82.5,y:19.5,w:22},overall:{show:1,x:17.5,y:18.5,size:13.6,color:'#ffffff',align:'center'},role:{show:1,x:17,y:28,size:5.2,color:'#ffffff',align:'center'},number:{show:1,x:82,y:28,size:6.4,color:'#ffffff',align:'center'},name:{show:1,x:50,y:58.5,size:7,color:'#ffffff',align:'center'},attrs:{show:1,x:50,y:74.5,size:7.8,color:'#ffffff'},tierName:{show:1,x:50,y:90,size:4,color:'#d6d6d6',align:'center'},badges:{x:50,y:82,size:9}}
 };
 function deepMerge(base,over){ const o=JSON.parse(JSON.stringify(base)); if(over) Object.keys(over).forEach(k=>{ o[k]=(typeof over[k]==='object'&&!Array.isArray(over[k]))?deepMerge(o[k]||{},over[k]):over[k]; }); return o; }
 function getCardLayout(tier){ return deepMerge(BASE_CARD_LAYOUT, DEPLOY_CARD_LAYOUTS[tier]); }
@@ -831,6 +896,28 @@ function renderCardAttrs(el,width){
   return `<div class="tc-attrs" style="left:${el.x}%;top:${el.y}%;transform:translate(-50%,-50%);font-size:${(el.size/100*width).toFixed(1)}px;color:${el.color}"><div class="tc-attr-grid">${cells}</div></div>`;
 }
 /* Render card, stesso ordinamento DOM/stacking del coach: frame z-index 0, contenuto sopra */
+function myBadgeSlots(){
+  const fams=BADGE_FAMILIES[sportOf()]||[];
+  if(!S.badgeSlots) S.badgeSlots=[];
+  S.badgeSlots=S.badgeSlots.filter(sl=>fams.some(f=>f.id===sl.familyId));
+  return S.badgeSlots;
+}
+function defaultBadgeSlotPos(idx,tier){
+  const area=(DEPLOY_CARD_LAYOUTS[tier]&&DEPLOY_CARD_LAYOUTS[tier].badges)||BASE_CARD_LAYOUT.badges;
+  const offsets=[-16,0,16];
+  return {x:area.x+(offsets[idx]||0), y:area.y};
+}
+function toggleBadgeSlot(familyId){
+  const slots=myBadgeSlots();
+  const idx=slots.findIndex(s=>s.familyId===familyId);
+  if(idx>=0){ slots.splice(idx,1); }
+  else{
+    if(slots.length>=3){ toast('Puoi scegliere al massimo 3 badge','danger'); return; }
+    const pos=defaultBadgeSlotPos(slots.length,myTier());
+    slots.push({familyId,x:pos.x,y:pos.y,scale:1});
+  }
+  save(); renderCardBadgeChooser(); refreshCardPreview();
+}
 function renderMyTierCard(width){
   width=width||300; const H=width*1.4;
   const p=P().p, tier=myTier(), L=getCardLayout(tier), ovr=myOverallForCard();
@@ -838,9 +925,19 @@ function renderMyTierCard(width){
   const alignT=a=>a==='left'?'0':a==='right'?'-100%':'-50%';
   const txt=(key,val)=>{ const e=L[key]; if(!e||!e.show||val==null||val==='')return '';
     return `<div class="tc-el" style="left:${e.x}%;top:${e.y}%;transform:translate(${alignT(e.align)},-50%);font-size:${(e.size/100*width).toFixed(1)}px;color:${e.color};text-align:${e.align}">${val}</div>`; };
-  const ph=L.photo; const photoEl = ph&&ph.show ? `<div class="tc-photo" style="left:${ph.x}%;top:${ph.y}%;width:${ph.w}%;height:${(ph.h/100*H/width*100).toFixed(2)}%"><img src="${photoSrc}"></div>`:'';
+  const ph=L.photo;
+  const ct=Object.assign({x:50,y:50,scale:1},S.cardTransform||{});
+  const photoEl = ph&&ph.show ? `<div class="tc-photo" id="tc-photo-box" style="left:${ph.x}%;top:${ph.y}%;width:${ph.w}%;height:${(ph.h/100*H/width*100).toFixed(2)}%">
+      <img id="tc-photo-img" src="${photoSrc}" style="left:${ct.x}%;top:${ct.y}%;transform:translate(-50%,-50%) scale(${ct.scale})"></div>`:'';
   const cands=frameCandidates(tier);
-  return `<div class="tiercard tier-${tier}" style="width:${width}px;height:${H}px">
+  const states=computeBadgeStates(), fams=BADGE_FAMILIES[sportOf()]||[];
+  const badgesHTML=myBadgeSlots().map((sl,i)=>{
+    const fam=fams.find(f=>f.id===sl.familyId); if(!fam) return '';
+    const st=states.find(x=>x.fam.id===fam.id); const meta=st?BADGE_LEVELS[st.level]:null; if(!meta) return '';
+    const sizePx=((L.badges&&L.badges.size)||9)/100*width;
+    return `<div class="tc-badge" data-slot="${i}" style="left:${sl.x}%;top:${sl.y}%;width:${sizePx.toFixed(1)}px;height:${sizePx.toFixed(1)}px;font-size:${(sizePx*0.5).toFixed(1)}px;transform:translate(-50%,-50%) scale(${sl.scale||1});background:${meta.color}"><i class="fa-solid ${fam.icon}"></i></div>`;
+  }).join('');
+  return `<div class="tiercard tier-${tier}" id="tc-root" style="width:${width}px;height:${H}px">
     <img class="tc-frame" src="${cands[0]}" data-fb="${cands.slice(1).join('|')}" onerror="tcFrameFallback(this)" alt="">
     ${photoEl}
     ${txt('overall',ovr!=null?ovr:'—')}
@@ -849,7 +946,86 @@ function renderMyTierCard(width){
     ${txt('name',(p.name||'').toUpperCase())}
     ${renderCardAttrs(L.attrs,width)}
     ${txt('tierName',TIER_LABEL[tier])}
+    ${badgesHTML}
   </div>`;
+}
+/* ---------- posizionamento touch (drag+pinch) di foto e badge sulla card ---------- */
+function attachDragPinch(el,getRect,state,opts,onCommit){
+  opts=opts||{};
+  const minScale=opts.minScale!=null?opts.minScale:0.5, maxScale=opts.maxScale!=null?opts.maxScale:1.6;
+  const tol=opts.tolerancePct!=null?opts.tolerancePct:15;
+  const pointers=new Map(); let mode=null, start=null;
+  const pts=()=>[...pointers.values()];
+  const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+  function apply(){ el.style.left=state.x+'%'; el.style.top=state.y+'%'; el.style.transform=`translate(-50%,-50%) scale(${state.scale})`; }
+  function clamp(){
+    state.x=Math.max(-tol,Math.min(100+tol,state.x));
+    state.y=Math.max(-tol,Math.min(100+tol,state.y));
+    state.scale=Math.max(minScale,Math.min(maxScale,state.scale));
+  }
+  el.style.touchAction='none';
+  el.addEventListener('pointerdown',e=>{
+    try{ el.setPointerCapture(e.pointerId); }catch(_){}
+    pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const p=pts();
+    if(p.length===1){ mode='drag'; start={px:p[0].x,py:p[0].y,sx:state.x,sy:state.y}; }
+    else if(p.length===2){ mode='pinch'; start={d:dist(p[0],p[1]),scale:state.scale}; }
+    e.preventDefault();
+  });
+  el.addEventListener('pointermove',e=>{
+    if(!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const p=pts(), rect=getRect();
+    if(mode==='drag' && p.length===1 && rect.width && rect.height){
+      state.x=start.sx+(p[0].x-start.px)/rect.width*100;
+      state.y=start.sy+(p[0].y-start.py)/rect.height*100;
+      clamp(); apply();
+    } else if(mode==='pinch' && p.length===2){
+      const d=dist(p[0],p[1]);
+      state.scale=start.scale*(d/start.d);
+      clamp(); apply();
+    }
+  });
+  function end(e){
+    pointers.delete(e.pointerId);
+    const p=pts();
+    if(p.length===0){ mode=null; if(onCommit) onCommit({x:state.x,y:state.y,scale:state.scale}); }
+    else if(p.length===1){ mode='drag'; start={px:p[0].x,py:p[0].y,sx:state.x,sy:state.y}; }
+  }
+  el.addEventListener('pointerup',end);
+  el.addEventListener('pointercancel',end);
+  apply();
+}
+function wireCardInteractions(){
+  const root=document.getElementById('tc-root'); if(!root) return;
+  const photoBox=document.getElementById('tc-photo-box'), photoImg=document.getElementById('tc-photo-img');
+  if(photoBox && photoImg){
+    const ct=Object.assign({x:50,y:50,scale:1}, S.cardTransform||{});
+    attachDragPinch(photoImg, ()=>photoBox.getBoundingClientRect(), ct, {tolerancePct:20}, final=>{ S.cardTransform=final; save(); });
+  }
+  const slots=myBadgeSlots();
+  root.querySelectorAll('.tc-badge').forEach(el=>{
+    const idx=+el.getAttribute('data-slot'), slot=slots[idx]; if(!slot) return;
+    const st={x:slot.x,y:slot.y,scale:slot.scale||1};
+    attachDragPinch(el, ()=>root.getBoundingClientRect(), st, {tolerancePct:10}, final=>{ slot.x=final.x; slot.y=final.y; slot.scale=final.scale; save(); });
+  });
+}
+function refreshCardPreview(){
+  const old=document.getElementById('tc-root'); if(!old) return;
+  old.outerHTML=renderMyTierCard(300);
+  wireCardInteractions();
+}
+function renderCardBadgeChooser(){
+  const box=document.getElementById('badge-chooser'); if(!box) return;
+  const states=computeBadgeStates(), slots=myBadgeSlots();
+  const chips=states.map(st=>{
+    const {fam,level}=st, unlocked=level>0, selected=slots.some(s=>s.familyId===fam.id), meta=BADGE_LEVELS[level];
+    return `<button type="button" class="badge-chip ${selected?'on':''}" ${unlocked?'':'disabled'} onclick="toggleBadgeSlot('${fam.id}')">
+      <i class="fa-solid ${fam.icon}" style="${meta?`color:${meta.color}`:''}"></i> ${fam.name}${selected?' <i class="fa-solid fa-check"></i>':''}</button>`;
+  }).join('');
+  box.innerHTML=`<div class="sec-title" style="text-align:left">Scegli i tuoi badge</div>
+    <p style="color:var(--muted-2);font-size:.76rem;margin:-2px 0 10px">Fino a 3, solo tra quelli già sbloccati.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">${chips}</div>`;
 }
 function cardCSS(){
   if(document.getElementById('tier-card-css')) return;
@@ -857,10 +1033,12 @@ function cardCSS(){
   st.textContent=`
   .tiercard{position:relative;border-radius:12px;font-family:'Outfit',sans-serif;font-weight:900;overflow:hidden;margin:0 auto;}
   .tiercard .tc-frame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:0;pointer-events:none;}
-  .tiercard .tc-photo{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:1;}
-  .tiercard .tc-photo img{width:100%;height:100%;object-fit:contain;object-position:bottom;}
+  .tiercard .tc-photo{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:1;touch-action:none;}
+  .tiercard .tc-photo img{position:absolute;width:100%;height:100%;object-fit:cover;cursor:grab;}
   .tiercard .tc-el{position:absolute;white-space:nowrap;line-height:1;text-shadow:0 2px 6px rgba(0,0,0,.5);letter-spacing:.5px;z-index:2;}
   .tiercard .tc-attrs{position:absolute;z-index:2;text-shadow:0 2px 6px rgba(0,0,0,.55);font-family:'Outfit',sans-serif;}
+  .tiercard .tc-badge{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#0b1220;
+    box-shadow:0 4px 10px -3px rgba(0,0,0,.6);z-index:3;cursor:grab;touch-action:none;border:2px solid rgba(255,255,255,.85);}
   .tc-attr-grid{display:grid;grid-template-columns:auto auto;gap:.15em 1.1em;}
   .tc-attr{display:flex;align-items:baseline;gap:.3em;line-height:1;}
   .tc-attr b{font-weight:900;font-variant-numeric:tabular-nums;} .tc-attr span{font-weight:800;opacity:.72;font-size:.7em;letter-spacing:.5px;}
@@ -868,14 +1046,18 @@ function cardCSS(){
   document.head.appendChild(st);
 }
 function openMyCard(){
-  plMediaCSS(); cardCSS();
+  plMediaCSS(); cardCSS(); badgeFamCSS();
   openModal(`<div class="modal-head"><h3><i class="fa-solid fa-id-card" style="color:var(--brand)"></i> La mia card <span class="pill" style="margin-left:6px">${TIER_LABEL[myTier()]}</span></h3>
       <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body fc-wrap">
       ${renderMyTierCard(300)}
+      <p style="color:var(--muted-2);font-size:.76rem;text-align:center;margin-top:8px">Trascina la foto o i badge per spostarli, pizzica con due dita per ridimensionarli.</p>
       <button class="btn btn-accent" style="width:100%;margin-top:16px" onclick="pickPhoto()"><i class="fa-solid fa-camera"></i> ${PL_PHOTO?'Cambia foto':'Aggiungi la tua foto'}</button>
       ${PL_PHOTO?'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="removePhoto()"><i class="fa-solid fa-trash"></i> Rimuovi foto</button>':''}
+      <div id="badge-chooser" style="margin-top:18px"></div>
     </div>`);
+  wireCardInteractions();
+  renderCardBadgeChooser();
 }
 
 /* ---------- Formazione consigliata (ricevuta dal mister) — tab a schermo intero in navbar ---------- */
