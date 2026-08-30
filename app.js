@@ -818,14 +818,24 @@ function cropPhoto(srcDataURL){
       <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="modal-body" style="text-align:center">
       <div id="cp-frame" class="rp-checker" style="width:${F}px;height:${F}px;margin:0 auto;border-radius:16px;overflow:hidden;position:relative;touch-action:none;border:2px solid var(--brand)">
-        <img id="cp-img" src="${srcDataURL}" style="position:absolute;width:100%;height:100%;object-fit:cover;left:50%;top:50%;transform:translate(-50%,-50%) scale(1);cursor:grab">
+        <img id="cp-img" src="${srcDataURL}" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(1);cursor:grab;max-width:none;max-height:none">
       </div>
       <p style="color:var(--muted-2);font-size:.78rem;margin-top:10px">Trascina per spostare, pizzica con due dita per zoomare: scegli l'inquadratura giusta (non tagliare la testa).</p>
       <button class="btn btn-accent" style="width:100%;margin-top:12px" onclick="confirmCrop()"><i class="fa-solid fa-check"></i> Conferma ritaglio</button>
     </div>`);
   const frame=document.getElementById('cp-frame'), img=document.getElementById('cp-img');
   const state={x:50,y:50,scale:1};
-  attachDragPinch(img, ()=>frame.getBoundingClientRect(), state, {tolerancePct:30}, ()=>{});
+  /* finestra fissa (overflow:hidden) + immagine alla sua dimensione reale: niente
+     object-fit, così drag/pinch spostano/scalano davvero la foto sotto la maschera
+     invece di limitarsi a un ritaglio "cover" già fissato e immutabile. */
+  function setupWindow(){
+    const iw=img.naturalWidth||1, ih=img.naturalHeight||1;
+    const cover=Math.max(F/iw,F/ih);
+    img.style.width=(iw*cover)+'px';
+    img.style.height=(ih*cover)+'px';
+    attachDragPinch(img, ()=>frame.getBoundingClientRect(), state, {tolerancePct:30}, ()=>{});
+  }
+  if(img.complete && img.naturalWidth) setupWindow(); else img.onload=setupWindow;
   window.__cp={state,src:srcDataURL,F};
 }
 function confirmCrop(){
@@ -834,8 +844,8 @@ function confirmCrop(){
   const im=new Image();
   im.onload=()=>{
     const iw=im.naturalWidth, ih=im.naturalHeight;
-    /* stesso sistema (object-fit:cover + translate(-50%,-50%) scale(s) centrato in
-       x%,y%) usato per la foto sulla tier card: replichiamo la matematica inversa
+    /* stessa geometria della finestra in setupWindow (immagine reale a scala
+       cover*state.scale, centrata in x%,y% del riquadro): matematica inversa
        per ritagliare esattamente ciò che l'utente vede nel riquadro F×F. */
     const cover=Math.max(F/iw,F/ih), eff=cover*state.scale;
     const cx=F*state.x/100, cy=F*state.y/100;
