@@ -73,21 +73,29 @@ function applyPkg(pkg){
     /* badgeSeen/cardTransform/badgeSlots sono personalizzazioni del giocatore sul
        dispositivo: sopravvivono a un nuovo pacchetto ricevuto dal mister, non fanno
        parte dei dati che il mister invia. */
-    const keep={badgeSeen:S.badgeSeen, badgeSeenInit:S.badgeSeenInit, badgeUnlockDates:S.badgeUnlockDates, cardTransform:S.cardTransform, badgeSlots:S.badgeSlots};
+    const keep={badgeSeen:S.badgeSeen, badgeSeenInit:S.badgeSeenInit, badgeUnlockDates:S.badgeUnlockDates, cardTransform:S.cardTransform, badgeSlots:S.badgeSlots, online:S.online};
     S=Object.assign({pkg, self:{}, mine:[], onboard:false}, keep);
     if(pkg.photo){ PL_PHOTO=pkg.photo; idbSet('self',pkg.photo); }
     save(); closeOnboarding(); renderAll(); toast('Profilo caricato: '+pkg.p.name);
 }
 function openImport(){
+    const savedCode=(S.online&&S.online.teamCode)||'', savedPin=(S.online&&S.online.pin)||'';
     openModal(`<div class="modal-head"><h3><i class="fa-solid fa-arrow-right-to-bracket" style="color:var(--brand)"></i> Importa profilo</h3>
         <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
         <div class="modal-body">
-        <p style="color:var(--muted);font-size:.88rem;margin-bottom:1rem">Chiedi al mister il <b>file profilo</b> o il <b>codice</b>. Caricalo qui per vedere i tuoi dati reali.</p>
+        <p style="color:var(--muted);font-size:.88rem;margin-bottom:1rem">Chiedi al mister il <b>file profilo</b>, il <b>codice</b>, oppure il <b>codice squadra + PIN</b> per accedere online. Caricalo qui per vedere i tuoi dati reali.</p>
         <input type="file" id="imp-file" accept="application/json" style="display:none" onchange="impFile(event)">
         <button class="btn btn-accent" style="width:100%;margin-bottom:14px" onclick="document.getElementById('imp-file').click()"><i class="fa-solid fa-file-import"></i> Carica file profilo</button>
         <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:600">Oppure incolla il codice</label>
         <textarea id="imp-code" style="height:90px;margin-top:6px;font-family:monospace;font-size:.72rem" placeholder="Incolla qui il codice…"></textarea>
         <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="impCode()"><i class="fa-solid fa-check"></i> Carica codice</button>
+        <div style="margin-top:1rem;border-top:1px solid var(--line-soft);padding-top:1rem">
+            <label style="font-size:.72rem;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:600">Oppure accedi online</label>
+            <p style="color:var(--muted);font-size:.82rem;margin:4px 0 8px">Il mister ti dà il codice squadra e il tuo PIN personale — nessun file da salvare.</p>
+            <input id="imp-team-code" placeholder="Codice squadra" value="${savedCode}" style="width:100%;padding:10px 12px;border-radius:10px;background:var(--surface-2,#141D31);color:inherit;border:1px solid var(--line-soft,#22304E);font-weight:700;letter-spacing:1px;text-transform:uppercase">
+            <input id="imp-pin" placeholder="PIN" inputmode="numeric" value="${savedPin}" style="width:100%;padding:10px 12px;border-radius:10px;background:var(--surface-2,#141D31);color:inherit;border:1px solid var(--line-soft,#22304E);margin-top:8px">
+            <button class="btn btn-ghost" style="width:100%;margin-top:8px" id="imp-online-btn" onclick="impOnline()"><i class="fa-solid fa-cloud-arrow-down"></i> Accedi online</button>
+        </div>
         <div style="text-align:center;margin-top:1rem;border-top:1px solid var(--line-soft);padding-top:1rem">
             <span style="color:var(--muted);font-size:.82rem">Non hai un codice? </span><button class="link-btn" onclick="editMyProfile()">Crea il profilo a mano</button></div>
         </div>`);
@@ -95,6 +103,24 @@ function openImport(){
 function impCode(){ try{applyPkg(decode(document.getElementById('imp-code').value));closeModal();}catch(e){toast('Codice non valido','danger');} }
 function impFile(e){ const f=e.target.files[0];if(!f)return;const r=new FileReader();
     r.onload=()=>{try{applyPkg(JSON.parse(r.result));closeModal();}catch(err){toast('File non valido','danger');}};r.readAsText(f);e.target.value='';}
+function impOnline(){
+    if(typeof AiRIMSync==='undefined'){ toast('Modulo sync non disponibile: ricarica la pagina.','danger'); return; }
+    const codeEl=document.getElementById('imp-team-code'), pinEl=document.getElementById('imp-pin');
+    const teamCode=(codeEl.value||'').trim().toUpperCase(), pin=(pinEl.value||'').trim();
+    if(!teamCode||!pin){ toast('Inserisci codice squadra e PIN','info'); return; }
+    const btn=document.getElementById('imp-online-btn');
+    const setBtn=(busy)=>{ if(!btn) return; btn.disabled=busy; btn.innerHTML=busy?'<i class="fa-solid fa-spinner fa-spin"></i> Accesso in corso…':'<i class="fa-solid fa-cloud-arrow-down"></i> Accedi online'; };
+    setBtn(true);
+    AiRIMSync.getPlayerPackage(teamCode, pin).then(row=>{
+        setBtn(false);
+        if(!row){ toast('Codice squadra o PIN errati','danger'); return; }
+        try{
+            applyPkg(row.package);
+            S.online={teamCode, pin, teamId:row.team_id, playerId:row.player_id}; save();
+            closeModal();
+        }catch(e){ toast('Pacchetto ricevuto non valido','danger'); }
+    }).catch(()=>{ setBtn(false); toast('Connessione non riuscita, riprova','danger'); });
+}
 
 /* =========================================================
    BACKUP (Modulo Q) — nessun export esisteva lato Player: scarica

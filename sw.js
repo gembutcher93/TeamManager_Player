@@ -1,5 +1,5 @@
-const CACHE_VERSION='vtm-player-v24';
-const APP_SHELL=['./','./index.html','./app.js','./soundkit.js','./manifest.json','./icons/logo-badge.png','./icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png','./icons/favicon-32.png','./body/male.png','./body/female.png','./body/male_back.png','./body/female_back.png'];
+const CACHE_VERSION='vtm-player-v25';
+const APP_SHELL=['./','./index.html','./app.js','./supabase.js','./soundkit.js','./manifest.json','./icons/logo-badge.png','./icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png','./icons/favicon-32.png','./body/male.png','./body/female.png','./body/male_back.png','./body/female_back.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE_VERSION).then(c=>c.addAll(APP_SHELL)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE_VERSION).map(x=>caches.delete(x)))));self.clients.claim();});
 self.addEventListener('fetch',e=>{const r=e.request;if(r.method!=='GET')return;const u=new URL(r.url);
