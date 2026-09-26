@@ -758,7 +758,7 @@ function plCSS(){
   #pl-onb .ic{font-size:74px;filter:drop-shadow(0 10px 22px rgba(0,0,0,.5));}
   #pl-onb h2{font-family:'Outfit',sans-serif;font-weight:800;font-size:1.85rem;line-height:1.12;}
   #pl-onb p{color:var(--muted);font-size:1.02rem;line-height:1.5;max-width:460px;}
-  #pl-onb .brandsub{font-size:.72rem;letter-spacing:3px;text-transform:uppercase;color:var(--brand);font-weight:700;}
+  #pl-onb .brandsub{font-size:.72rem;letter-spacing:3px;text-transform:none;color:var(--brand);font-weight:700;}
   #pl-onb .acr-tag{font-size:.66rem;letter-spacing:1px;color:var(--muted);margin-top:-6px;}
   #pl-onb .sports{display:flex;flex-direction:column;gap:12px;width:100%;max-width:420px;margin-top:6px;}
   #pl-onb .sp{display:flex;align-items:center;gap:16px;padding:16px 18px;border-radius:16px;border:1px solid var(--line);background:var(--surface-2);cursor:pointer;transition:.18s;}
