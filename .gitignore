@@ -1,0 +1,6 @@
+.claude/
+.venv/
+.vscode/
+graphify-out/
+Prompt/
+MARKETING*.md

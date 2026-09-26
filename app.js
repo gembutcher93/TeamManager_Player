@@ -116,11 +116,89 @@ function impOnline(){
         if(!row){ toast('Codice squadra o PIN errati','danger'); return; }
         try{
             applyPkg(row.package);
-            S.online={teamCode, pin, teamId:row.team_id, playerId:row.player_id}; save();
+            S.online={teamCode, pin, teamId:row.team_id, playerId:row.player_id, lastSync:Date.now()}; save();
             closeModal();
         }catch(e){ toast('Pacchetto ricevuto non valido','danger'); }
     }).catch(()=>{ setBtn(false); toast('Connessione non riuscita, riprova','danger'); });
 }
+
+/* =========================================================
+   AGGIORNAMENTO AUTOMATICO (report_player.md, Prompt: polling player) —
+   solo al boot e al ritorno dell'app in primo piano, MAI un intervallo
+   periodico mentre resta aperta: il giocatore non la tiene aperta in
+   attesa, un timer continuo consumerebbe solo batteria/dati senza un
+   beneficio reale. Riusa AiRIMSync.getPlayerPackage esistente (stessa
+   chiamata del bottone manuale "Accedi online"), nessuna nuova rete.
+   ========================================================= */
+const PLAYER_AUTO_REFRESH_MIN_MS=60000; // soglia minima tra due refresh automatici (boot escluso)
+let _playerAutoRefreshBusy=false;
+function playerSyncErrorDetail(e){
+    if(!e) return '';
+    const parts=[];
+    if(e.message) parts.push(e.message);
+    if(e.details) parts.push(e.details);
+    if(e.hint) parts.push(e.hint);
+    const code=e.code||e.status;
+    if(code) parts.push(`(${code})`);
+    return parts.length? parts.join(' — ') : String(e);
+}
+/* A differenza di applyPkg() (pensata per un import esplicito, che azzera
+   self/mine perche' potrebbe essere un profilo diverso), un refresh
+   automatico aggiorna SOLO il pacchetto: niente toast, niente chiusura
+   onboarding, e soprattutto non tocca le autovalutazioni allenamento del
+   giocatore (S.self) ne' S.mine, che non fanno parte del pacchetto ricevuto. */
+function applyPkgFromAutoRefresh(pkg){
+    if(!pkg || pkg.k!=='vtm-player' || !pkg.p) return false;
+    S.pkg=pkg; save();
+    return true;
+}
+function playerSyncFreshnessHtml(){
+    if(!S.online) return '';
+    const ts=S.online.lastSync;
+    let when;
+    if(!ts) when='non ancora aggiornato online';
+    else{
+        const diffMin=Math.round((Date.now()-ts)/60000);
+        if(diffMin<1) when='aggiornato pochi istanti fa';
+        else if(diffMin<60) when=`aggiornato ${diffMin} minut${diffMin===1?'o':'i'} fa`;
+        else{ const d=new Date(ts); when=`aggiornato il ${d.toLocaleDateString('it-IT')} alle ${d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}`; }
+    }
+    const errNote=S.online.lastSyncError? ' · ultimo aggiornamento automatico non riuscito, mostro i dati salvati':'';
+    const title=S.online.lastSyncError? ` title="${(S.online.lastSyncError+'').replace(/"/g,'&quot;')}"`:'';
+    return `<div style="text-align:center;color:var(--muted);font-size:.74rem;margin:-4px 0 10px"${title}><i class="fa-solid fa-cloud-arrow-down" style="opacity:.6"></i> ${when}${errNote}</div>`;
+}
+/* opts.force ignora la soglia minima (usato solo per test/debug manuale, il
+   flusso normale boot+resume la rispetta sempre tranne al primissimo giro,
+   quando S.online.lastSync non esiste ancora). */
+async function playerAutoRefresh(opts){
+    opts=opts||{};
+    if(_playerAutoRefreshBusy) return;
+    if(!S.online || !S.online.teamCode || !S.online.pin) return; // nessuna credenziale online salvata: niente da fare
+    if(typeof AiRIMSync==='undefined') return;
+    const now=Date.now();
+    if(!opts.force && S.online.lastSync && (now-S.online.lastSync)<PLAYER_AUTO_REFRESH_MIN_MS) return;
+    _playerAutoRefreshBusy=true;
+    let updated=false;
+    try{
+        const row=await AiRIMSync.getPlayerPackage(S.online.teamCode, S.online.pin);
+        // risposta vuota/pacchetto non valido (es. PIN nel frattempo cambiato dal mister):
+        // non tocchiamo S.pkg gia' salvato, l'app continua a mostrare l'ultimo dato buono noto.
+        if(row && row.package && applyPkgFromAutoRefresh(row.package)){
+            S.online.lastSync=Date.now();
+            delete S.online.lastSyncError;
+            updated=true;
+        }
+    }catch(e){
+        const detail=playerSyncErrorDetail(e);
+        console.warn('[AIrim Player] aggiornamento automatico non riuscito:', detail||e);
+        if(S.online) S.online.lastSyncError=detail||String(e);
+    }finally{
+        save();
+        _playerAutoRefreshBusy=false;
+        if(updated) renderAll(); else renderProfilo();
+    }
+}
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') playerAutoRefresh(); });
 
 /* =========================================================
    BACKUP (Modulo Q) — nessun export esisteva lato Player: scarica
@@ -216,7 +294,7 @@ function renderProfilo(){
     const goal=p.goal? `<div class="card"><div class="goal-box"><i class="fa-solid fa-bullseye"></i><div><div class="l">Obiettivo dal mister</div><p>${p.goal}</p></div></div></div>`:'';
     plMediaCSS();
     const avatar=`<div class="pl-avatar" onclick="pickPhoto()"><div class="im">${PL_PHOTO?`<img src="${PL_PHOTO}">`:`<div class="ph">＋<br>foto</div>`}</div><div class="cam"><i class="fa-solid fa-camera"></i></div></div>`;
-    document.getElementById('profilo').innerHTML=`${demoBanner()}
+    document.getElementById('profilo').innerHTML=`${demoBanner()}${playerSyncFreshnessHtml()}
         <div class="phero">${courtSVG(sportOf())}
             ${avatar}
             <div class="jersey-big ${p.cap?'cap':''}">${p.number}${p.cap?'<span class="lead">👑</span>':p.vice?'<span class="lead">🥈</span>':''}</div>
@@ -569,6 +647,7 @@ document.addEventListener('pointerdown',function unlockAudioOnce(){ if(window.So
 renderAll();
 if(S.onboard) showOnboarding();
 idbGet('self').then(d=>{ if(d){ PL_PHOTO=d; renderProfilo(); } });
+playerAutoRefresh();   /* refresh automatico al boot se ci sono credenziali online salvate (no-op altrimenti) */
 setTimeout(checkBackupReminderPlayer, 2000);   /* dopo l'animazione di apertura, mai durante */
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
