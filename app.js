@@ -118,6 +118,7 @@ function impOnline(){
             applyPkg(row.package);
             S.online={teamCode, pin, teamId:row.team_id, playerId:row.player_id, lastSync:Date.now()}; save();
             closeModal();
+            socAvvisoRefresh();
         }catch(e){ toast('Pacchetto ricevuto non valido','danger'); }
     }).catch(()=>{ setBtn(false); toast('Connessione non riuscita, riprova','danger'); });
 }
@@ -188,6 +189,7 @@ async function playerAutoRefresh(opts){
             delete S.online.lastSyncError;
             updated=true;
         }
+        if(row) await socAvvisoRefresh(true);
     }catch(e){
         const detail=playerSyncErrorDetail(e);
         console.warn('[AIrim Player] aggiornamento automatico non riuscito:', detail||e);
@@ -199,6 +201,37 @@ async function playerAutoRefresh(opts){
     }
 }
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') playerAutoRefresh(); });
+
+/* =========================================================
+   AVVISO QUOTE DELLA SOCIETA' (AiRIM Società) — si chiede al server negli
+   stessi momenti del pacchetto (accesso online e aggiornamento automatico).
+   Resta SOLO in memoria, mai nello stato S: l'importo e' sempre quello reale,
+   e appena la societa' segna il pagamento il banner sparisce alla riapertura.
+   ========================================================= */
+let SOC_AVVISO=null;
+async function socAvvisoRefresh(silent){
+    if(!S.online || typeof AiRIMSync==='undefined' || !AiRIMSync.getAvvisoSocieta) return;
+    try{ SOC_AVVISO=await AiRIMSync.getAvvisoSocieta(S.online.teamCode, S.online.pin); }
+    catch(e){ console.warn('[AiRIM Player] avviso società non disponibile:', e && e.message); return; }   // senza rete resta l'ultimo noto in memoria
+    if(!silent) renderProfilo();
+}
+function socEsc(v){ return v==null?'':String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function socAvvisoHtml(){
+    const a=SOC_AVVISO; if(!a || !(+a.totale>0)) return '';
+    const voci=(a.voci||[]).map(v=>`<li>${socEsc(v.descrizione)} · <b>${(+v.residuo).toFixed(2).replace('.',',').replace(',00','')} €</b></li>`).join('');
+    return `<div class="card" style="border:1px solid var(--warn,#F5B301);margin-bottom:12px">
+        <div style="display:flex;gap:10px;align-items:flex-start"><i class="fa-solid fa-bell" style="color:var(--warn,#F5B301);font-size:1.2rem;margin-top:2px"></i>
+        <div style="flex:1;min-width:0"><b>${socEsc(a.societa)}</b><p style="margin:4px 0">${socEsc(a.testo)}</p>
+        <ul style="margin:6px 0 8px 18px;font-size:.85rem;color:var(--muted)">${voci}</ul>
+        ${a.iban?`<div style="font-size:.82rem;color:var(--muted);word-break:break-all">IBAN ${socEsc(a.iban)} · ${socEsc(a.intestatario)}<br>Causale: ${socEsc(a.causale)}</div>`:''}
+        <div style="display:flex;gap:8px;margin-top:10px">${a.iban?`<button class="btn btn-ghost" style="flex:1;padding:8px" onclick="socCopia('iban')"><i class="fa-solid fa-copy"></i> Copia IBAN</button>`:''}
+        <button class="btn btn-ghost" style="flex:1;padding:8px" onclick="socCopia('causale')"><i class="fa-solid fa-copy"></i> Copia causale</button></div>
+        <div style="font-size:.74rem;color:var(--muted-2);margin-top:8px">Se hai già pagato, l'avviso sparisce appena la società lo registra.</div></div></div></div>`;
+}
+function socCopia(k){
+    const t=SOC_AVVISO && SOC_AVVISO[k]; if(!t) return;
+    (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Copiato')).catch(()=>toast('Copia non riuscita','danger'));
+}
 
 /* =========================================================
    BACKUP (Modulo Q) — nessun export esisteva lato Player: scarica
@@ -294,7 +327,7 @@ function renderProfilo(){
     const goal=p.goal? `<div class="card"><div class="goal-box"><i class="fa-solid fa-bullseye"></i><div><div class="l">Obiettivo dal mister</div><p>${p.goal}</p></div></div></div>`:'';
     plMediaCSS();
     const avatar=`<div class="pl-avatar" onclick="pickPhoto()"><div class="im">${PL_PHOTO?`<img src="${PL_PHOTO}">`:`<div class="ph">＋<br>foto</div>`}</div><div class="cam"><i class="fa-solid fa-camera"></i></div></div>`;
-    document.getElementById('profilo').innerHTML=`${demoBanner()}${playerSyncFreshnessHtml()}
+    document.getElementById('profilo').innerHTML=`${demoBanner()}${playerSyncFreshnessHtml()}${socAvvisoHtml()}
         <div class="phero">${courtSVG(sportOf())}
             ${avatar}
             <div class="jersey-big ${p.cap?'cap':''}">${p.number}${p.cap?'<span class="lead">👑</span>':p.vice?'<span class="lead">🥈</span>':''}</div>

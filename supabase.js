@@ -17,7 +17,9 @@
   function getClient() {
     if (_clientPromise) return _clientPromise;
     _clientPromise = import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm')
-      .then(m => m.createClient(SUPABASE_URL, SUPABASE_ANON_KEY));
+      .then(m => m.createClient(SUPABASE_URL, SUPABASE_ANON_KEY))
+      // senza rete il caricamento fallisce: si riprova alla prossima chiamata invece di restare bloccati
+      .catch(e => { _clientPromise = null; throw e; });
     return _clientPromise;
   }
 
@@ -37,5 +39,14 @@
     return true;
   }
 
-  window.AiRIMSync = { getClient, getPlayerPackage, submitPlayerReport };
+  /* ---- avviso quote della società (AiRIM Società): stesso team_code + PIN.
+     Riga vuota = nessun avviso (in regola, nessun sollecito, società non attiva). ---- */
+  async function getAvvisoSocieta(teamCode, pin) {
+    const sb = await getClient();
+    const { data, error } = await sb.rpc('soc_avviso_giocatore', { p_team_code: teamCode, p_pin: String(pin) });
+    if (error) throw error;
+    return (data && data[0]) || null; // {societa, testo, totale, voci, iban, intestatario, causale}
+  }
+
+  window.AiRIMSync = { getClient, getPlayerPackage, submitPlayerReport, getAvvisoSocieta };
 })();
