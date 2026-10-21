@@ -48,5 +48,14 @@
     return (data && data[0]) || null; // {societa, testo, totale, voci, iban, intestatario, causale}
   }
 
-  window.AiRIMSync = { getClient, getPlayerPackage, submitPlayerReport, getAvvisoSocieta };
+  /* ---- certificato medico e tesseramento (AiRIM Società): stesso team_code + PIN.
+     Riga vuota = la società non ha inserito niente per questo giocatore. ---- */
+  async function getStatoSocieta(teamCode, pin) {
+    const sb = await getClient();
+    const { data, error } = await sb.rpc('soc_stato_giocatore', { p_team_code: teamCode, p_pin: String(pin) });
+    if (error) throw error;
+    return (data && data[0]) || null; // {societa, certificato_scadenza, certificato, confermato}
+  }
+
+  window.AiRIMSync = { getClient, getPlayerPackage, submitPlayerReport, getAvvisoSocieta, getStatoSocieta };
 })();

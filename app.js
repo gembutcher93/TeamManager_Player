@@ -208,13 +208,31 @@ document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState=
    Resta SOLO in memoria, mai nello stato S: l'importo e' sempre quello reale,
    e appena la societa' segna il pagamento il banner sparisce alla riapertura.
    ========================================================= */
-let SOC_AVVISO=null;
+let SOC_AVVISO=null, SOC_STATO=null;   // anche certificato e tesseramento: solo in memoria, mai in S
 async function socAvvisoRefresh(silent){
     if(!S.online || typeof AiRIMSync==='undefined' || !AiRIMSync.getAvvisoSocieta) return;
-    try{ SOC_AVVISO=await AiRIMSync.getAvvisoSocieta(S.online.teamCode, S.online.pin); }
+    try{ [SOC_AVVISO, SOC_STATO]=await Promise.all([AiRIMSync.getAvvisoSocieta(S.online.teamCode, S.online.pin),
+            AiRIMSync.getStatoSocieta ? AiRIMSync.getStatoSocieta(S.online.teamCode, S.online.pin) : null]); }
     catch(e){ console.warn('[AiRIM Player] avviso società non disponibile:', e && e.message); return; }   // senza rete resta l'ultimo noto in memoria
     if(!silent) renderProfilo();
 }
+/* certificato medico (solo la data di scadenza) e tesseramento, come li ha segnati la società */
+function socStatoHtml(){
+    const s=SOC_STATO; if(!s) return '';
+    const d=s.certificato_scadenza?fmtIt(s.certificato_scadenza):'';
+    const [col,ico,txt]={
+        valido:['var(--ok)','fa-circle-check',`Certificato medico valido fino al ${d}`],
+        in_scadenza:['var(--warn)','fa-triangle-exclamation',`Il certificato medico scade il ${d}: rinnovalo per tempo e portalo alla società`],
+        scaduto:['var(--bad)','fa-circle-xmark',`Certificato medico scaduto il ${d}: porta quello nuovo alla società`],
+        mancante:['var(--bad)','fa-circle-xmark','Certificato medico: la società non l\'ha ancora ricevuto'],
+    }[s.certificato]||['var(--muted)','fa-circle-info','Certificato medico: stato non disponibile'];
+    return `<div class="card" style="margin-bottom:12px${s.certificato!=='valido'?`;border:1px solid ${col}`:''}">
+        <div style="font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">${socEsc(s.societa)}</div>
+        <div style="display:flex;gap:10px;align-items:flex-start"><i class="fa-solid ${ico}" style="color:${col};font-size:1.1rem;margin-top:2px"></i><span>${socEsc(txt)}</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;margin-top:8px"><i class="fa-solid ${s.confermato?'fa-circle-check':'fa-circle-minus'}" style="color:${s.confermato?'var(--ok)':'var(--muted)'};font-size:1.1rem;margin-top:2px"></i>
+            <span>${s.confermato?'Tesseramento confermato':'Tesseramento non ancora confermato'}</span></div></div>`;
+}
+function fmtIt(d){ const [y,m,g]=String(d).slice(0,10).split('-'); return g+'/'+m+'/'+y; }
 function socEsc(v){ return v==null?'':String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function socAvvisoHtml(){
     const a=SOC_AVVISO; if(!a || !(+a.totale>0)) return '';
@@ -327,7 +345,7 @@ function renderProfilo(){
     const goal=p.goal? `<div class="card"><div class="goal-box"><i class="fa-solid fa-bullseye"></i><div><div class="l">Obiettivo dal mister</div><p>${p.goal}</p></div></div></div>`:'';
     plMediaCSS();
     const avatar=`<div class="pl-avatar" onclick="pickPhoto()"><div class="im">${PL_PHOTO?`<img src="${PL_PHOTO}">`:`<div class="ph">＋<br>foto</div>`}</div><div class="cam"><i class="fa-solid fa-camera"></i></div></div>`;
-    document.getElementById('profilo').innerHTML=`${demoBanner()}${playerSyncFreshnessHtml()}${socAvvisoHtml()}
+    document.getElementById('profilo').innerHTML=`${demoBanner()}${playerSyncFreshnessHtml()}${socAvvisoHtml()}${socStatoHtml()}
         <div class="phero">${courtSVG(sportOf())}
             ${avatar}
             <div class="jersey-big ${p.cap?'cap':''}">${p.number}${p.cap?'<span class="lead">👑</span>':p.vice?'<span class="lead">🥈</span>':''}</div>
